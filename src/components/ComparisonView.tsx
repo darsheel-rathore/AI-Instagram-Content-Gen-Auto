@@ -47,7 +47,7 @@ interface Props {
   myUsername?: string
 }
 
-export default function ComparisonView({ myReels, competitors, myUsername = 'manthanjethwani' }: Props) {
+export default function ComparisonView({ myReels, competitors, myUsername = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'me' }: Props) {
   const allAccounts = [
     { username: myUsername, reels: myReels, isMe: true },
     ...Object.entries(competitors).map(([username, reels]) => ({ username, reels, isMe: false })),

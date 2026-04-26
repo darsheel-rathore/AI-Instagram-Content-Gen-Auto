@@ -18,7 +18,8 @@ type Tab = 'mine' | 'competitors' | 'compare' | 'ideas'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
 
-const MY_URL = 'https://www.instagram.com/manthanjethwani/'
+const MY_USERNAME = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_username'
+const MY_URL = `https://www.instagram.com/${MY_USERNAME}/`
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -274,7 +275,7 @@ export default function Dashboard() {
             </div>
             <div>
               <h1 className="text-base font-bold text-white tracking-tight">Content Dashboard</h1>
-              <p className="text-xs text-slate-500">@manthanjethwani</p>
+              <p className="text-xs text-slate-500">@{MY_USERNAME}</p>
             </div>
           </div>
           <nav className="flex items-center gap-1 bg-slate-800/60 rounded-xl p-1">
@@ -304,7 +305,7 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-xl font-bold text-white">My Reels</h2>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-slate-500 text-sm">Last 30 days · @manthanjethwani</p>
+                  <p className="text-slate-500 text-sm">Last 30 days · @{MY_USERNAME}</p>
                   {myLastSynced && (
                     <span className="flex items-center gap-1 text-xs text-slate-600">
                       <Clock className="w-3 h-3" /> {timeAgo(myLastSynced)}
