@@ -39,7 +39,7 @@ Keep it sharp, specific, and actionable. No fluff. Reference specific view count
 async function generateWithAnthropic(prompt: string): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
-    model: 'claude-opus-4-7',
+    model: 'claude-haiku-4-5-20251001',  // cheapest, fastest
     max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -70,7 +70,7 @@ async function generateWithOpenAI(prompt: string): Promise<string> {
 
 async function generateWithGemini(prompt: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
   const result = await model.generateContent(prompt)
   return result.response.text()
 }
