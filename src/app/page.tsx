@@ -306,7 +306,7 @@ export default function Dashboard() {
   }, [])
 
   const filteredReels = perfFilter === 'all' ? myReels : myReels.filter((r) => r.performance === perfFilter)
-  const competitorUsernames = Object.keys(competitors)
+  const competitorUsernames = Object.keys(competitors).reverse()
   const selectedIdea = ideasHistory.find((g) => g.id === selectedIdeaId) ?? ideasHistory[0] ?? null
 
   // ─── Tab nav ──────────────────────────────────────────────────────────────
