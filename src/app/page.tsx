@@ -302,7 +302,8 @@ export default function Dashboard() {
             const sel = selectedCompForIdeasRef.current
             const all = competitorsRef.current
             const allKeys = Object.keys(all)
-            if (sel.size === 0 || sel.size >= allKeys.length) return all
+            if (sel.size >= allKeys.length) return all
+            if (sel.size === 0) return {}
             return Object.fromEntries(Object.entries(all).filter(([u]) => sel.has(u)))
           })(),
         }),
@@ -582,7 +583,13 @@ export default function Dashboard() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => setSelectedCompForIdeas(new Set(competitorUsernames))}
+                    onClick={() =>
+                      setSelectedCompForIdeas(
+                        selectedCompForIdeas.size >= competitorUsernames.length
+                          ? new Set()
+                          : new Set(competitorUsernames),
+                      )
+                    }
                     className={clsx(
                       'text-xs px-3 py-1.5 rounded-lg border transition-colors',
                       selectedCompForIdeas.size >= competitorUsernames.length
@@ -614,9 +621,11 @@ export default function Dashboard() {
                     </button>
                   ))}
                 </div>
-                {selectedCompForIdeas.size > 0 && selectedCompForIdeas.size < competitorUsernames.length && (
+                {selectedCompForIdeas.size < competitorUsernames.length && (
                   <p className="text-xs text-slate-600 mt-2">
-                    {selectedCompForIdeas.size} of {competitorUsernames.length} creators selected
+                    {selectedCompForIdeas.size === 0
+                      ? 'No creators selected — ideas will be based on your reels only'
+                      : `${selectedCompForIdeas.size} of ${competitorUsernames.length} creators selected`}
                   </p>
                 )}
               </div>
