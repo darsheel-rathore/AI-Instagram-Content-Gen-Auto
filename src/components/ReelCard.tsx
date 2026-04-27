@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import type { Reel } from '@/lib/types'
@@ -36,7 +36,7 @@ export default function ReelCard({ reel, onTranscribe, transcribing }: Props) {
   const [imgFailed, setImgFailed] = useState(false)
   const perf = reel.performance ?? 'mid'
   const engRate = reel.views > 0 ? (((reel.likes + reel.comments) / reel.views) * 100).toFixed(1) : '0.0'
-  const postedDate = reel.timestamp ? new Date(reel.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
+  const postedDate = reel.timestamp ? new Date(reel.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'â€”'
 
   return (
     <div className={clsx('rounded-xl border card-hover flex flex-col', PERF_STYLES[perf])}>
@@ -101,7 +101,7 @@ export default function ReelCard({ reel, onTranscribe, transcribing }: Props) {
             {showTranscript ? 'Hide transcript' : 'Show transcript'}
           </button>
           {showTranscript && (
-            <p className="mt-1.5 text-xs text-slate-400 bg-slate-800/80 rounded p-2 leading-relaxed max-h-28 overflow-y-auto">
+            <p className="mt-1.5 text-xs text-slate-400 bg-slate-800/80 rounded p-2 leading-relaxed ">
               {reel.transcript}
             </p>
           )}
@@ -117,7 +117,7 @@ export default function ReelCard({ reel, onTranscribe, transcribing }: Props) {
             className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-600/30 rounded-lg py-1.5 transition-colors disabled:opacity-50"
           >
             {transcribing ? (
-              <><Loader2 className="w-3 h-3 animate-spin" /> Transcribing…</>
+              <><Loader2 className="w-3 h-3 animate-spin" /> Transcribingâ€¦</>
             ) : (
               <><FileText className="w-3 h-3" /> Transcribe</>
             )}
