@@ -48,7 +48,7 @@ const ACCOUNT_COLORS = [
 ]
 function colorFor(i: number) { return ACCOUNT_COLORS[i % ACCOUNT_COLORS.length] }
 
-const MAX_DEFAULT_COMPETITORS = 5
+const MAX_DEFAULT_COMPETITORS = 3
 const MAX_RADAR_ACCOUNTS = 5
 
 interface Props {
