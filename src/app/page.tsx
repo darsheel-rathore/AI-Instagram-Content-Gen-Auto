@@ -10,13 +10,16 @@ import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
-  Loader2, Sparkles, Filter, Plus, X, Clock, GitCompare,
+  Loader2, Sparkles, Filter, Plus, X, Clock, GitCompare, History,
 } from 'lucide-react'
 import clsx from 'clsx'
 
 type Tab = 'mine' | 'competitors' | 'compare' | 'ideas'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
+type GenerationRecord = { id: string; generatedAt: string; ideas: string }
+
+const MAX_SAVED_GENERATIONS = 15
 
 const MY_USERNAME = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_username'
 const MY_URL = `https://www.instagram.com/${MY_USERNAME}/`
@@ -75,6 +78,12 @@ async function loadCache<T>(key: string): Promise<T | null> {
   return data as T | null
 }
 
+function formatGenDate(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+}
+
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60_000)
@@ -112,7 +121,8 @@ export default function Dashboard() {
   const [newUsername, setNewUsername] = useState('')
 
   // Ideas
-  const [ideas, setIdeas] = useState('')
+  const [ideasHistory, setIdeasHistory] = useState<GenerationRecord[]>([])
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null)
   const [ideasLoading, setIdeasLoading] = useState(false)
   const [ideasError, setIdeasError] = useState('')
 
@@ -126,7 +136,8 @@ export default function Dashboard() {
     Promise.all([
       loadCache<{ reels: Reel[]; fetchedAt?: string }>('my_reels'),
       loadCache<{ accounts: Record<string, { reels: Reel[]; fetchedAt: string }> }>('competitors'),
-    ]).then(([myCache, compCache]) => {
+      loadCache<GenerationRecord[]>('content_ideas'),
+    ]).then(([myCache, compCache, ideasCache]) => {
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
         setMyLastSynced(myCache.fetchedAt ?? null)
@@ -141,6 +152,10 @@ export default function Dashboard() {
         }
         setCompetitors(reels)
         setCompLastSynced(synced)
+      }
+      if (ideasCache?.length) {
+        setIdeasHistory(ideasCache)
+        setSelectedIdeaId(ideasCache[0].id)
       }
       setCacheLoading(false)
     })
@@ -245,7 +260,17 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setIdeas(data.ideas as string)
+      const record: GenerationRecord = {
+        id: Date.now().toString(),
+        generatedAt: new Date().toISOString(),
+        ideas: data.ideas as string,
+      }
+      setIdeasHistory((prev) => {
+        const updated = [record, ...prev].slice(0, MAX_SAVED_GENERATIONS)
+        saveCache('content_ideas', updated)
+        return updated
+      })
+      setSelectedIdeaId(record.id)
     } catch (e: unknown) {
       setIdeasError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -255,6 +280,7 @@ export default function Dashboard() {
 
   const filteredReels = perfFilter === 'all' ? myReels : myReels.filter((r) => r.performance === perfFilter)
   const competitorUsernames = Object.keys(competitors)
+  const selectedIdea = ideasHistory.find((g) => g.id === selectedIdeaId) ?? ideasHistory[0] ?? null
 
   // ─── Tab nav ──────────────────────────────────────────────────────────────
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -517,7 +543,7 @@ export default function Dashboard() {
               >
                 {ideasLoading
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
-                  : <><Sparkles className="w-4 h-4" /> {ideas ? 'Regenerate' : 'Generate Ideas'}</>}
+                  : <><Sparkles className="w-4 h-4" /> {ideasHistory.length > 0 ? 'Generate New' : 'Generate Ideas'}</>}
               </button>
             </div>
 
@@ -539,17 +565,40 @@ export default function Dashboard() {
             )}
 
             {ideasLoading && (
-              <ScrapeProgress message="Analyzing your content + competitors…" subtext="GPT-4o is reviewing data and generating a strategy" />
+              <ScrapeProgress message="Analyzing your content + competitors…" subtext="AI is reviewing data and generating a strategy" />
             )}
 
-            {ideas && !ideasLoading && (
+            {/* ── History selector ── */}
+            {ideasHistory.length > 0 && !ideasLoading && (
+              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl border border-slate-700/60 bg-slate-800/40">
+                <History className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                <select
+                  value={selectedIdeaId ?? ''}
+                  onChange={(e) => setSelectedIdeaId(e.target.value)}
+                  className="flex-1 bg-slate-900/60 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {ideasHistory.map((g, i) => (
+                    <option key={g.id} value={g.id}>
+                      #{ideasHistory.length - i} — {formatGenDate(g.generatedAt)}{i === 0 ? '  (latest)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-slate-500 flex-shrink-0">{ideasHistory.length}/{MAX_SAVED_GENERATIONS} saved</span>
+              </div>
+            )}
+
+            {/* ── Selected generation content ── */}
+            {selectedIdea && !ideasLoading && (
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
-                  <span className="text-sm font-semibold text-emerald-300">Content Strategy Report</span>
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    <span className="text-sm font-semibold text-emerald-300">Content Strategy Report</span>
+                  </div>
+                  <span className="text-xs text-slate-500">{formatGenDate(selectedIdea.generatedAt)}</span>
                 </div>
                 <div className="space-y-1">
-                  {ideas.split('\n').map((line, i) => {
+                  {selectedIdea.ideas.split('\n').map((line, i) => {
                     if (!line.trim()) return <div key={i} className="h-2" />
                     if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /)) {
                       return <h3 key={i} className="text-base font-bold text-white mt-5 mb-2 pt-2">{line.replace(/\*\*/g, '').replace(/^#{1,3} /, '')}</h3>
@@ -568,12 +617,12 @@ export default function Dashboard() {
               </div>
             )}
 
-            {!ideas && !ideasLoading && (
+            {ideasHistory.length === 0 && !ideasLoading && (
               <div className="text-center py-24 border border-dashed border-slate-700 rounded-2xl">
                 <Lightbulb className="w-10 h-10 text-slate-600 mx-auto mb-4" />
                 <h3 className="text-white font-semibold mb-2">No ideas yet</h3>
                 <p className="text-slate-500 text-sm mb-6 max-w-xs mx-auto">
-                  Click &ldquo;Generate Ideas&rdquo; — GPT-4o will analyze your top performers vs competitors and tell you exactly what to make next.
+                  Click &ldquo;Generate Ideas&rdquo; — AI will analyze your top performers vs competitors and tell you exactly what to make next.
                 </p>
                 <button onClick={generateIdeas} className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors">
                   Generate Ideas
