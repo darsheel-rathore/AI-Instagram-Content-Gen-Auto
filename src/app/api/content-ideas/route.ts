@@ -202,7 +202,7 @@ function buildCompetitorContext(competitorReels: Record<string, Reel[]>): string
         .map((r) => {
           const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
           const transcript = r.transcript
-            ? `\n    Transcript excerpt: "${r.transcript.slice(0, 400)}..."`
+            ? `\n    Transcript excerpt: "${r.transcript.slice(0, 600)}..."`
             : ''
           return `  - ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement | Caption: ${r.caption.slice(0, 200)}${transcript}`
         })
@@ -301,13 +301,13 @@ export async function POST(req: NextRequest) {
   const myTopReels = [...(myReels ?? [])]
     .sort((a, b) => b.views - a.views)
     .slice(0, 5)
-    .map((r) => reelSummary(r, 200, 300))
+    .map((r) => reelSummary(r, 200, 500))
     .join('\n')
 
   const myLowReels = [...(myReels ?? [])]
     .sort((a, b) => a.views - b.views)
     .slice(0, 3)
-    .map((r) => reelSummary(r, 150))
+    .map((r) => reelSummary(r, 150, 300))
     .join('\n')
 
   const competitorContext = buildCompetitorContext(competitorReels)
