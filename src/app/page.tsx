@@ -10,7 +10,7 @@ import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
-  Loader2, Sparkles, Filter, Plus, X, Clock, GitCompare, History,
+  Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -119,6 +119,7 @@ export default function Dashboard() {
   const [scrapingUsernames, setScrapingUsernames] = useState<Set<string>>(new Set())
   const [compErrors, setCompErrors] = useState<Record<string, string>>({})
   const [newUsername, setNewUsername] = useState('')
+  const [expandedCompetitors, setExpandedCompetitors] = useState<Set<string>>(new Set())
 
   // Ideas
   const [ideasHistory, setIdeasHistory] = useState<GenerationRecord[]>([])
@@ -137,7 +138,8 @@ export default function Dashboard() {
       loadCache<{ reels: Reel[]; fetchedAt?: string }>('my_reels'),
       loadCache<{ accounts: Record<string, { reels: Reel[]; fetchedAt: string }> }>('competitors'),
       loadCache<GenerationRecord[]>('content_ideas'),
-    ]).then(([myCache, compCache, ideasCache]) => {
+      loadCache<string[]>('competitor_expand_state'),
+    ]).then(([myCache, compCache, ideasCache, expandCache]) => {
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
         setMyLastSynced(myCache.fetchedAt ?? null)
@@ -156,6 +158,9 @@ export default function Dashboard() {
       if (ideasCache?.length) {
         setIdeasHistory(ideasCache)
         setSelectedIdeaId(ideasCache[0].id)
+      }
+      if (expandCache?.length) {
+        setExpandedCompetitors(new Set(expandCache))
       }
       setCacheLoading(false)
     })
@@ -197,12 +202,28 @@ export default function Dashboard() {
         return updated
       })
       setCompLastSynced((prev) => ({ ...prev, [username]: now }))
+      setExpandedCompetitors((prev) => {
+        const updated = new Set(Array.from(prev))
+        updated.add(username)
+        saveCache('competitor_expand_state', Array.from(updated))
+        return updated
+      })
     } catch (e: unknown) {
       setCompErrors((prev) => ({ ...prev, [username]: e instanceof Error ? e.message : String(e) }))
     } finally {
       setScrapingUsernames((prev) => { const n = new Set(Array.from(prev)); n.delete(username); return n })
     }
   }, [compLastSynced])
+
+  const toggleCompetitor = useCallback((username: string) => {
+    setExpandedCompetitors((prev) => {
+      const updated = new Set(Array.from(prev))
+      if (updated.has(username)) updated.delete(username)
+      else updated.add(username)
+      saveCache('competitor_expand_state', Array.from(updated))
+      return updated
+    })
+  }, [])
 
   const addCompetitor = useCallback(() => {
     const clean = newUsername.replace('@', '').trim().toLowerCase()
@@ -223,6 +244,12 @@ export default function Dashboard() {
       return updated
     })
     setCompLastSynced((prev) => { const n = { ...prev }; delete n[username]; return n })
+    setExpandedCompetitors((prev) => {
+      const updated = new Set(Array.from(prev))
+      updated.delete(username)
+      saveCache('competitor_expand_state', Array.from(updated))
+      return updated
+    })
   }, [compLastSynced])
 
   // ─── Transcribe ───────────────────────────────────────────────────────────
@@ -474,43 +501,20 @@ export default function Dashboard() {
 
             {/* Competitor sections */}
             {competitorUsernames.length > 0 && (
-              <div className="space-y-6">
+              <div className="space-y-3">
                 {competitorUsernames.map((username) => (
-                  <div key={username}>
-                    {/* Header row */}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        {compLastSynced[username] && (
-                          <span className="flex items-center gap-1 text-xs text-slate-600">
-                            <Clock className="w-3 h-3" /> {timeAgo(compLastSynced[username])}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => fetchCompetitor(username)}
-                          disabled={scrapingUsernames.has(username)}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-40"
-                        >
-                          <RefreshCw className={clsx('w-3 h-3', scrapingUsernames.has(username) && 'animate-spin')} />
-                          Re-sync
-                        </button>
-                        <button
-                          onClick={() => removeCompetitor(username)}
-                          className="flex items-center gap-1 text-xs text-slate-600 hover:text-rose-400 transition-colors"
-                        >
-                          <X className="w-3 h-3" /> Remove
-                        </button>
-                      </div>
-                    </div>
-                    {compErrors[username] && (
-                      <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg p-3 mb-2 text-xs">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                        {compErrors[username]}
-                      </div>
-                    )}
-                    <CompetitorSection username={username} reels={competitors[username] ?? []} />
-                  </div>
+                  <CompetitorSection
+                    key={username}
+                    username={username}
+                    reels={competitors[username] ?? []}
+                    isExpanded={expandedCompetitors.has(username)}
+                    onToggle={() => toggleCompetitor(username)}
+                    lastSynced={compLastSynced[username] ?? null}
+                    isLoading={scrapingUsernames.has(username)}
+                    error={compErrors[username]}
+                    onResync={() => fetchCompetitor(username)}
+                    onRemove={() => removeCompetitor(username)}
+                  />
                 ))}
               </div>
             )}
