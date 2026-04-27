@@ -126,11 +126,24 @@ export default function Dashboard() {
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null)
   const [ideasLoading, setIdeasLoading] = useState(false)
   const [ideasError, setIdeasError] = useState('')
+  const [selectedCompForIdeas, setSelectedCompForIdeas] = useState<Set<string>>(new Set())
 
   const myReelsRef = useRef(myReels)
   const competitorsRef = useRef(competitors)
+  const selectedCompForIdeasRef = useRef(selectedCompForIdeas)
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
+  useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
+
+  // Keep selectedCompForIdeas in sync as competitors are added / removed
+  useEffect(() => {
+    setSelectedCompForIdeas((prev) => {
+      const updated = new Set(Array.from(prev))
+      Object.keys(competitors).forEach((u) => updated.add(u))
+      Array.from(prev).forEach((u) => { if (!competitors[u]) updated.delete(u) })
+      return updated
+    })
+  }, [competitors])
 
   // ─── Load cache on mount ──────────────────────────────────────────────────
   useEffect(() => {
@@ -283,7 +296,16 @@ export default function Dashboard() {
       const res = await fetch('/api/content-ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ myReels: myReelsRef.current, competitorReels: competitorsRef.current }),
+        body: JSON.stringify({
+          myReels: myReelsRef.current,
+          competitorReels: (() => {
+            const sel = selectedCompForIdeasRef.current
+            const all = competitorsRef.current
+            const allKeys = Object.keys(all)
+            if (sel.size === 0 || sel.size >= allKeys.length) return all
+            return Object.fromEntries(Object.entries(all).filter(([u]) => sel.has(u)))
+          })(),
+        }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -550,6 +572,55 @@ export default function Dashboard() {
                   : <><Sparkles className="w-4 h-4" /> {ideasHistory.length > 0 ? 'Generate New' : 'Generate Ideas'}</>}
               </button>
             </div>
+
+            {/* ── Competitor filter ── */}
+            {competitorUsernames.length > 0 && (
+              <div className="mb-5 p-4 rounded-xl border border-slate-700/60 bg-slate-800/40">
+                <p className="text-xs text-slate-500 font-medium mb-3 flex items-center gap-1.5">
+                  <Users2 className="w-3.5 h-3.5" />
+                  Include competitor research from:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setSelectedCompForIdeas(new Set(competitorUsernames))}
+                    className={clsx(
+                      'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                      selectedCompForIdeas.size >= competitorUsernames.length
+                        ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
+                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                    )}
+                  >
+                    All
+                  </button>
+                  {competitorUsernames.map((username) => (
+                    <button
+                      key={username}
+                      onClick={() =>
+                        setSelectedCompForIdeas((prev) => {
+                          const updated = new Set(Array.from(prev))
+                          if (updated.has(username)) updated.delete(username)
+                          else updated.add(username)
+                          return updated
+                        })
+                      }
+                      className={clsx(
+                        'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                        selectedCompForIdeas.has(username)
+                          ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      @{username}
+                    </button>
+                  ))}
+                </div>
+                {selectedCompForIdeas.size > 0 && selectedCompForIdeas.size < competitorUsernames.length && (
+                  <p className="text-xs text-slate-600 mt-2">
+                    {selectedCompForIdeas.size} of {competitorUsernames.length} creators selected
+                  </p>
+                )}
+              </div>
+            )}
 
             {(myReels.length === 0 || competitorUsernames.length === 0) && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-4 mb-6 text-sm">
