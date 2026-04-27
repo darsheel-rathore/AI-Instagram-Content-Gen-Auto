@@ -12,6 +12,7 @@ export interface Reel {
   duration?: number
   ownerUsername: string
   transcript?: string
+  transcriptPartial?: boolean
   performance?: 'top' | 'mid' | 'low'
 }
 

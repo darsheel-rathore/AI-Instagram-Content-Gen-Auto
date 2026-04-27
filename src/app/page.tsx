@@ -96,6 +96,19 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+function parseTranscribeError(msg: string): string {
+  if (msg.includes('insufficient_quota') || msg.includes('exceeded your current quota')) {
+    return 'No OpenAI credits — top up at platform.openai.com/account/billing'
+  }
+  if (msg.includes('invalid_api_key') || msg.includes('Incorrect API key')) {
+    return 'Invalid OpenAI API key — check OPENAI_API_KEY in .env.local'
+  }
+  if (msg.includes('Audio download failed')) {
+    return 'Could not download audio — the URL may have expired. Try re-syncing.'
+  }
+  return msg.replace('Whisper API error: ', '').slice(0, 120)
+}
+
 const SCRAPE_MSG: Record<ScrapeState, string> = {
   idle: '', starting: 'Starting Apify scraper…',
   polling: 'Scraping Instagram reels… (1–3 min)',
@@ -124,6 +137,9 @@ export default function Dashboard() {
   const [newUsername, setNewUsername] = useState('')
   const [expandedCompetitors, setExpandedCompetitors] = useState<Set<string>>(new Set())
   const [compTranscribingId, setCompTranscribingId] = useState<string | null>(null)
+  const [compTranscribeErrors, setCompTranscribeErrors] = useState<Record<string, string>>({})
+  const [compBulkTranscribing, setCompBulkTranscribing] = useState<Record<string, { current: number; total: number }>>({})
+  const compBulkTranscribingRef = useRef<Record<string, boolean>>({})
 
   // Crawl filters
   const [compFilterReels, setCompFilterReels] = useState(15)
@@ -271,22 +287,25 @@ export default function Dashboard() {
   }, [newUsername, competitors, fetchCompetitor])
 
   const transcribeCompetitorReel = useCallback(async (username: string, reel: Reel) => {
-    const mediaUrl = reel.audioUrl ?? reel.videoUrl
-    if (!mediaUrl) return
+    if (!reel.audioUrl && !reel.videoUrl) return
     setCompTranscribingId(reel.id)
+    setCompTranscribeErrors((prev) => { const n = { ...prev }; delete n[reel.id]; return n })
     try {
       const res = await fetch('/api/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioUrl: mediaUrl }),
+        body: JSON.stringify({ audioUrl: reel.audioUrl, videoUrl: reel.videoUrl, duration: reel.duration }),
       })
       const data = await res.json()
+      if (data.error) throw new Error(data.error as string)
       if (data.transcript) {
         setCompetitors((prev) => {
           const updated = {
             ...prev,
             [username]: (prev[username] ?? []).map((r) =>
-              r.id === reel.id ? { ...r, transcript: data.transcript as string } : r
+              r.id === reel.id
+                ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true }
+                : r
             ),
           }
           const accounts: Record<string, { reels: Reel[]; fetchedAt: string }> = {}
@@ -297,9 +316,70 @@ export default function Dashboard() {
           return updated
         })
       }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setCompTranscribeErrors((prev) => ({ ...prev, [reel.id]: parseTranscribeError(msg) }))
     } finally {
       setCompTranscribingId(null)
     }
+  }, [compLastSynced])
+
+  const transcribeAllCompetitorReels = useCallback(async (username: string) => {
+    const reels = competitorsRef.current[username] ?? []
+    const toTranscribe = reels.filter((r) => !r.transcript && (r.audioUrl || r.videoUrl))
+
+    if (toTranscribe.length === 0) return
+
+    compBulkTranscribingRef.current[username] = true
+    setCompBulkTranscribing((prev) => ({ ...prev, [username]: { current: 0, total: toTranscribe.length } }))
+
+    for (let i = 0; i < toTranscribe.length; i++) {
+      if (!compBulkTranscribingRef.current[username]) break
+      const reel = toTranscribe[i]
+
+      setCompBulkTranscribing((prev) => ({ ...prev, [username]: { current: i + 1, total: toTranscribe.length } }))
+      setCompTranscribingId(reel.id)
+
+      setCompTranscribeErrors((prev) => { const n = { ...prev }; delete n[reel.id]; return n })
+      try {
+        const res = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audioUrl: reel.audioUrl, videoUrl: reel.videoUrl, duration: reel.duration }),
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error as string)
+        if (data.transcript) {
+          setCompetitors((prev) => {
+            const updated = {
+              ...prev,
+              [username]: (prev[username] ?? []).map((r) =>
+                r.id === reel.id
+                  ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true }
+                  : r
+              ),
+            }
+            const accounts: Record<string, { reels: Reel[]; fetchedAt: string }> = {}
+            for (const [u, r] of Object.entries(updated)) {
+              accounts[u] = { reels: r, fetchedAt: compLastSynced[u] ?? '' }
+            }
+            saveCache('competitors', { accounts })
+            return updated
+          })
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        setCompTranscribeErrors((prev) => ({ ...prev, [reel.id]: parseTranscribeError(msg) }))
+      }
+    }
+
+    delete compBulkTranscribingRef.current[username]
+    setCompTranscribingId(null)
+    setCompBulkTranscribing((prev) => {
+      const updated = { ...prev }
+      delete updated[username]
+      return updated
+    })
   }, [compLastSynced])
 
   const removeCompetitor = useCallback((username: string) => {
@@ -705,6 +785,9 @@ export default function Dashboard() {
                     onRemove={() => removeCompetitor(username)}
                     onTranscribe={(reel) => transcribeCompetitorReel(username, reel)}
                     transcribingId={compTranscribingId}
+                    transcribeErrors={compTranscribeErrors}
+                    onTranscribeAll={() => transcribeAllCompetitorReels(username)}
+                    transcribeAllProgress={compBulkTranscribing[username] ?? null}
                   />
                 ))}
               </div>
