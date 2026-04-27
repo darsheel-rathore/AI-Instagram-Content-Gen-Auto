@@ -346,9 +346,12 @@ export default function Dashboard() {
       <header className="border-b border-slate-800 bg-[#0a0f1e]/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/profile_photo.jpg"
+              alt="Profile"
+              className="w-8 h-8 rounded-lg object-cover"
+            />
             <div>
               <h1 className="text-base font-bold text-white tracking-tight">Content Dashboard</h1>
               <p className="text-xs text-slate-500">@{MY_USERNAME}</p>

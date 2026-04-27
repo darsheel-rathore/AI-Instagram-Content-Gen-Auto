@@ -4,6 +4,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: `Content Dashboard — @${process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'me'}`,
   description: 'Instagram reels analytics, competitor research & content ideas',
+  icons: { icon: '/favicon.png' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
