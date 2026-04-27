@@ -12,7 +12,7 @@ import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
-  SlidersHorizontal, Zap, Wand2,
+  SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -164,16 +164,22 @@ export default function Dashboard() {
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null)
   const [noPromptDialog, setNoPromptDialog] = useState(false)
 
+  // Per-creator reel selection for ideas
+  const [selectedCompReelIds, setSelectedCompReelIds] = useState<Record<string, Set<string>>>({})
+  const [expandedReelPickers, setExpandedReelPickers] = useState<Set<string>>(new Set())
+
   const myReelsRef = useRef(myReels)
   const competitorsRef = useRef(competitors)
   const selectedCompForIdeasRef = useRef(selectedCompForIdeas)
   const promptTemplatesRef = useRef(promptTemplates)
   const selectedPromptIdRef = useRef(selectedPromptId)
+  const selectedCompReelIdsRef = useRef<Record<string, Set<string>>>({})
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
   useEffect(() => { promptTemplatesRef.current = promptTemplates }, [promptTemplates])
   useEffect(() => { selectedPromptIdRef.current = selectedPromptId }, [selectedPromptId])
+  useEffect(() => { selectedCompReelIdsRef.current = selectedCompReelIds }, [selectedCompReelIds])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
@@ -489,11 +495,19 @@ export default function Dashboard() {
           myReels: myReelsRef.current,
           competitorReels: (() => {
             const sel = selectedCompForIdeasRef.current
+            const reelSel = selectedCompReelIdsRef.current
             const all = competitorsRef.current
             const allKeys = Object.keys(all)
-            if (sel.size >= allKeys.length) return all
             if (sel.size === 0) return {}
-            return Object.fromEntries(Object.entries(all).filter(([u]) => sel.has(u)))
+            const entries = sel.size >= allKeys.length
+              ? Object.entries(all)
+              : Object.entries(all).filter(([u]) => sel.has(u))
+            return Object.fromEntries(
+              entries.map(([u, reels]) => {
+                const rids = reelSel[u]
+                return [u, rids === undefined ? reels : reels.filter((r) => rids.has(r.id))]
+              })
+            )
           })(),
           systemPrompt: activePrompt.content,
         }),
@@ -932,6 +946,116 @@ export default function Dashboard() {
                       : `${selectedCompForIdeas.size} of ${competitorUsernames.length} creators selected`}
                   </p>
                 )}
+
+                {/* Per-creator reel pickers */}
+                {competitorUsernames
+                  .filter((u) => selectedCompForIdeas.has(u) && (competitors[u]?.length ?? 0) > 0)
+                  .map((username) => {
+                    const reels = competitors[username] ?? []
+                    const selected = selectedCompReelIds[username]
+                    const selCount = selected === undefined ? reels.length : selected.size
+                    const isPartial = selected !== undefined
+                    const isExpanded = expandedReelPickers.has(username)
+
+                    return (
+                      <div key={username} className="mt-2 rounded-lg border border-slate-700/40 bg-slate-900/20 overflow-hidden">
+                        {/* Picker header */}
+                        <div className="flex items-center gap-1 px-3 py-1.5">
+                          <button
+                            onClick={() => setExpandedReelPickers((prev) => {
+                              const next = new Set(Array.from(prev))
+                              next.has(username) ? next.delete(username) : next.add(username)
+                              return next
+                            })}
+                            className="flex items-center gap-1.5 flex-1 text-left min-w-0"
+                          >
+                            {isExpanded
+                              ? <ChevronDown className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                              : <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />}
+                            <span className="text-xs text-slate-400">@{username}</span>
+                            <span className={clsx(
+                              'text-xs ml-1.5',
+                              isPartial && selCount === 0 ? 'text-rose-500'
+                              : isPartial ? 'text-violet-400'
+                              : 'text-slate-600',
+                            )}>
+                              {selCount}/{reels.length} reels
+                            </span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (selected === undefined) {
+                                setSelectedCompReelIds((prev) => ({ ...prev, [username]: new Set() }))
+                              } else {
+                                setSelectedCompReelIds((prev) => { const n = { ...prev }; delete n[username]; return n })
+                              }
+                            }}
+                            className={clsx(
+                              'text-xs px-2 py-0.5 rounded border transition-colors flex-shrink-0',
+                              selected === undefined
+                                ? 'border-violet-500/40 text-violet-400 hover:bg-violet-500/10'
+                                : 'border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600',
+                            )}
+                          >{selected === undefined ? 'Deselect All' : 'Select All'}</button>
+                        </div>
+
+                        {/* Expanded reel list */}
+                        {isExpanded && (
+                          <div className="border-t border-slate-700/40 max-h-52 overflow-y-auto">
+                            {reels.map((reel) => {
+                              const isChecked = selected === undefined || selected.has(reel.id)
+                              return (
+                                <label
+                                  key={reel.id}
+                                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-800/50 cursor-pointer transition-colors border-b border-slate-800/40 last:border-0"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      setSelectedCompReelIds((prev) => {
+                                        const cur = prev[username]
+                                        let next: Set<string>
+                                        if (cur === undefined) {
+                                          next = new Set(reels.map((r) => r.id).filter((id) => id !== reel.id))
+                                        } else if (cur.has(reel.id)) {
+                                          next = new Set(Array.from(cur).filter((id) => id !== reel.id))
+                                        } else {
+                                          next = new Set(Array.from(cur).concat(reel.id))
+                                        }
+                                        if (next.size === reels.length) {
+                                          const updated = { ...prev }
+                                          delete updated[username]
+                                          return updated
+                                        }
+                                        return { ...prev, [username]: next }
+                                      })
+                                    }}
+                                    className="w-3.5 h-3.5 flex-shrink-0 accent-violet-500 cursor-pointer"
+                                  />
+                                  {reel.thumbnailUrl && (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={`/api/proxy-image?url=${encodeURIComponent(reel.thumbnailUrl)}`}
+                                      alt=""
+                                      className="w-7 h-9 rounded object-cover flex-shrink-0 bg-slate-800"
+                                    />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-slate-300">{reel.views.toLocaleString()} views · {reel.likes.toLocaleString()} likes</p>
+                                    <p className="text-xs text-slate-600 truncate">{reel.caption.slice(0, 100)}</p>
+                                  </div>
+                                  {reel.transcript && (
+                                    <span className="text-xs text-emerald-600/70 flex-shrink-0 font-medium">transcribed</span>
+                                  )}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
               </div>
             )}
 
