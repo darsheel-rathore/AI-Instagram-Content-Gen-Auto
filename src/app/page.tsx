@@ -123,6 +123,7 @@ export default function Dashboard() {
   const [compErrors, setCompErrors] = useState<Record<string, string>>({})
   const [newUsername, setNewUsername] = useState('')
   const [expandedCompetitors, setExpandedCompetitors] = useState<Set<string>>(new Set())
+  const [compTranscribingId, setCompTranscribingId] = useState<string | null>(null)
 
   // Crawl filters
   const [compFilterReels, setCompFilterReels] = useState(15)
@@ -268,6 +269,38 @@ export default function Dashboard() {
     setNewUsername('')
     if (!competitors[clean]) fetchCompetitor(clean)
   }, [newUsername, competitors, fetchCompetitor])
+
+  const transcribeCompetitorReel = useCallback(async (username: string, reel: Reel) => {
+    const mediaUrl = reel.audioUrl ?? reel.videoUrl
+    if (!mediaUrl) return
+    setCompTranscribingId(reel.id)
+    try {
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioUrl: mediaUrl }),
+      })
+      const data = await res.json()
+      if (data.transcript) {
+        setCompetitors((prev) => {
+          const updated = {
+            ...prev,
+            [username]: (prev[username] ?? []).map((r) =>
+              r.id === reel.id ? { ...r, transcript: data.transcript as string } : r
+            ),
+          }
+          const accounts: Record<string, { reels: Reel[]; fetchedAt: string }> = {}
+          for (const [u, r] of Object.entries(updated)) {
+            accounts[u] = { reels: r, fetchedAt: compLastSynced[u] ?? '' }
+          }
+          saveCache('competitors', { accounts })
+          return updated
+        })
+      }
+    } finally {
+      setCompTranscribingId(null)
+    }
+  }, [compLastSynced])
 
   const removeCompetitor = useCallback((username: string) => {
     setCompetitors((prev) => {
@@ -670,6 +703,8 @@ export default function Dashboard() {
                     error={compErrors[username]}
                     onResync={() => fetchCompetitor(username)}
                     onRemove={() => removeCompetitor(username)}
+                    onTranscribe={(reel) => transcribeCompetitorReel(username, reel)}
+                    transcribingId={compTranscribingId}
                   />
                 ))}
               </div>
