@@ -53,6 +53,7 @@ interface Props {
   transcribingId: string | null
   transcribeErrors?: Record<string, string>
   onTranscribeAll: () => void
+  onStopTranscribeAll: () => void
   transcribeAllProgress: { current: number; total: number } | null
 }
 
@@ -365,7 +366,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 
 export default function CompetitorSection({
   username, reels, isExpanded, onToggle, lastSynced, isLoading, error, onResync, onRemove,
-  onTranscribe, transcribingId, transcribeErrors, onTranscribeAll, transcribeAllProgress,
+  onTranscribe, transcribingId, transcribeErrors, onTranscribeAll, onStopTranscribeAll, transcribeAllProgress,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('views')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -530,7 +531,7 @@ export default function CompetitorSection({
                 <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="font-medium">
-                    Transcribing {transcribeAllProgress.current} of {transcribeAllProgress.total} reelsâ€¦
+                    Transcribing {transcribeAllProgress.current} of {transcribeAllProgress.total} reels...
                   </span>
                   <span className="text-slate-500 ml-2">Don&apos;t navigate away</span>
                 </div>
@@ -542,6 +543,13 @@ export default function CompetitorSection({
                     />
                   </div>
                 </div>
+                <button
+                  onClick={onStopTranscribeAll}
+                  title="Stop transcription"
+                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-xs text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400/50 hover:bg-rose-500/10 transition-colors"
+                >
+                  <X className="w-3 h-3" /> Stop
+                </button>
               </div>
             )}
 

@@ -854,6 +854,7 @@ export default function Dashboard() {
                     transcribingId={compTranscribingId}
                     transcribeErrors={compTranscribeErrors}
                     onTranscribeAll={() => transcribeAllCompetitorReels(username)}
+                    onStopTranscribeAll={() => { delete compBulkTranscribingRef.current[username] }}
                     transcribeAllProgress={compBulkTranscribing[username] ?? null}
                   />
                 ))}
