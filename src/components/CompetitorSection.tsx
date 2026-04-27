@@ -1,7 +1,18 @@
 'use client'
 
+import { useState } from 'react'
 import type { Reel } from '@/lib/types'
-import { Eye, Heart, MessageCircle, ExternalLink } from 'lucide-react'
+import { Eye, Heart, MessageCircle, ExternalLink, TrendingUp } from 'lucide-react'
+import clsx from 'clsx'
+
+type SortKey = 'views' | 'likes' | 'comments' | 'engagement'
+
+const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ReactNode; color: string }[] = [
+  { key: 'views',      label: 'Views',      icon: <Eye className="w-3 h-3" />,           color: 'sky' },
+  { key: 'likes',      label: 'Likes',      icon: <Heart className="w-3 h-3" />,         color: 'rose' },
+  { key: 'comments',   label: 'Comments',   icon: <MessageCircle className="w-3 h-3" />, color: 'violet' },
+  { key: 'engagement', label: 'Engagement', icon: <TrendingUp className="w-3 h-3" />,    color: 'amber' },
+]
 
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -57,7 +68,12 @@ function CompetitorReel({ reel, rank }: { reel: Reel; rank: number }) {
 }
 
 export default function CompetitorSection({ username, reels }: Props) {
-  const sorted = [...reels].sort((a, b) => b.views - a.views)
+  const [sortBy, setSortBy] = useState<SortKey>('views')
+
+  const engRate = (r: Reel) => r.views > 0 ? (r.likes + r.comments) / r.views : 0
+  const sorted = [...reels].sort((a, b) =>
+    sortBy === 'engagement' ? engRate(b) - engRate(a) : b[sortBy] - a[sortBy]
+  )
   const avgViews = reels.length > 0 ? reels.reduce((s, r) => s + r.views, 0) / reels.length : 0
   const avgEng = reels.length > 0
     ? reels.reduce((s, r) => s + (r.views > 0 ? (r.likes + r.comments) / r.views : 0), 0) / reels.length * 100
@@ -65,24 +81,45 @@ export default function CompetitorSection({ username, reels }: Props) {
 
   return (
     <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-700/60 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-slate-700/60 flex items-center justify-between gap-4">
         <div>
           <h3 className="font-semibold text-white">@{username}</h3>
           <p className="text-xs text-slate-500 mt-0.5">{reels.length} reels scraped</p>
         </div>
-        <div className="flex gap-4 text-right">
-          <div>
-            <div className="text-sm font-bold text-amber-400">{fmt(avgViews)}</div>
-            <div className="text-xs text-slate-500">avg views</div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-slate-900/60 rounded-lg p-1">
+            {SORT_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setSortBy(opt.key)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  sortBy === opt.key
+                    ? opt.color === 'sky'     ? 'bg-sky-500/20 text-sky-300'
+                    : opt.color === 'rose'    ? 'bg-rose-500/20 text-rose-300'
+                    : opt.color === 'violet'  ? 'bg-violet-500/20 text-violet-300'
+                    : 'bg-amber-500/20 text-amber-300'
+                    : 'text-slate-500 hover:text-slate-300',
+                )}
+              >
+                {opt.icon} {opt.label}
+              </button>
+            ))}
           </div>
-          <div>
-            <div className="text-sm font-bold text-emerald-400">{avgEng.toFixed(1)}%</div>
-            <div className="text-xs text-slate-500">avg eng.</div>
+          <div className="flex gap-4 text-right">
+            <div>
+              <div className="text-sm font-bold text-amber-400">{fmt(avgViews)}</div>
+              <div className="text-xs text-slate-500">avg views</div>
+            </div>
+            <div>
+              <div className="text-sm font-bold text-emerald-400">{avgEng.toFixed(1)}%</div>
+              <div className="text-xs text-slate-500">avg eng.</div>
+            </div>
           </div>
         </div>
       </div>
       <div className="p-4 flex flex-col gap-2.5 max-h-[500px] overflow-y-auto">
-        {sorted.slice(0, 10).map((reel, i) => (
+        {sorted.map((reel, i) => (
           <CompetitorReel key={reel.id} reel={reel} rank={i + 1} />
         ))}
         {reels.length === 0 && (
