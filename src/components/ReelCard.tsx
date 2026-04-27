@@ -101,7 +101,7 @@ export default function ReelCard({ reel, onTranscribe, transcribing }: Props) {
             {showTranscript ? 'Hide transcript' : 'Show transcript'}
           </button>
           {showTranscript && (
-            <p className="mt-1.5 text-xs text-slate-400 bg-slate-800/80 rounded p-2 leading-relaxed ">
+            <p className="mt-1.5 text-xs text-slate-400 bg-slate-800/80 rounded p-2 leading-relaxed overflow-y-auto max-h-40">
               {reel.transcript}
             </p>
           )}
