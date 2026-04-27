@@ -1,11 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import type { Reel } from '@/lib/types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, Legend,
 } from 'recharts'
-import { TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
 
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -39,7 +40,16 @@ function detectThemesTopReels(reels: Reel[]): Record<string, number> {
   return detectThemes(topReels.length > 0 ? topReels : reels)
 }
 
-const ACCOUNT_COLORS = ['#f59e0b', '#8b5cf6', '#06b6d4', '#10b981']
+// Extended palette — cycles if account count exceeds array length
+const ACCOUNT_COLORS = [
+  '#f59e0b', '#8b5cf6', '#06b6d4', '#10b981',
+  '#f97316', '#ec4899', '#14b8a6', '#a855f7',
+  '#ef4444', '#3b82f6',
+]
+function colorFor(i: number) { return ACCOUNT_COLORS[i % ACCOUNT_COLORS.length] }
+
+const MAX_DEFAULT_COMPETITORS = 5
+const MAX_RADAR_ACCOUNTS = 5
 
 interface Props {
   myReels: Reel[]
@@ -48,9 +58,16 @@ interface Props {
 }
 
 export default function ComparisonView({ myReels, competitors, myUsername = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'me' }: Props) {
+  const [showAll, setShowAll] = useState(false)
+
+  // Newest-first competitor ordering
+  const allCompetitorEntries = Object.entries(competitors).reverse()
+  const hasMore = allCompetitorEntries.length > MAX_DEFAULT_COMPETITORS
+  const visibleEntries = showAll ? allCompetitorEntries : allCompetitorEntries.slice(0, MAX_DEFAULT_COMPETITORS)
+
   const allAccounts = [
     { username: myUsername, reels: myReels, isMe: true },
-    ...Object.entries(competitors).map(([username, reels]) => ({ username, reels, isMe: false })),
+    ...visibleEntries.map(([username, reels]) => ({ username, reels, isMe: false })),
   ].filter((a) => a.reels.length > 0)
 
   if (allAccounts.length < 2) {
@@ -67,24 +84,27 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
     const avg = a.reels.reduce((s, r) => s + r.views, 0) / a.reels.length
     const avgEng = a.reels.reduce((s, r) => s + (r.views > 0 ? (r.likes + r.comments) / r.views : 0), 0) / a.reels.length * 100
     const topReel = a.reels.reduce((best, r) => r.views > best.views ? r : best, a.reels[0])
-    return { ...a, avgViews: avg, avgEng, topReel, color: ACCOUNT_COLORS[i] }
+    return { ...a, avgViews: avg, avgEng, topReel, color: colorFor(i) }
   })
 
   const meMetrics = metrics[0]
-  const chartData = metrics.map((m) => ({ name: `@${m.username}`, views: Math.round(m.avgViews), eng: parseFloat(m.avgEng.toFixed(2)) }))
+  const chartData = metrics.map((m) => ({ name: `@${m.username}`, views: Math.round(m.avgViews), eng: parseFloat(m.avgEng.toFixed(2)), color: m.color }))
 
   // ─── Theme analysis ──────────────────────────────────────────────────────────
-  const themeScores = metrics.map((m) => ({ username: m.username, themes: detectThemesTopReels(m.reels), isMe: m.isMe }))
+  const themeScores = metrics.map((m) => ({ username: m.username, themes: detectThemesTopReels(m.reels), isMe: m.isMe, color: m.color }))
   const allThemes = Object.keys(THEME_KEYWORDS)
 
-  // Radar chart data
+  // Radar: cap at MAX_RADAR_ACCOUNTS to stay readable
+  const radarAccounts = themeScores.slice(0, MAX_RADAR_ACCOUNTS)
+  const radarTruncated = themeScores.length > MAX_RADAR_ACCOUNTS
+
   const maxByTheme: Record<string, number> = {}
   for (const theme of allThemes) {
-    maxByTheme[theme] = Math.max(1, ...themeScores.map((t) => t.themes[theme] ?? 0))
+    maxByTheme[theme] = Math.max(1, ...radarAccounts.map((t) => t.themes[theme] ?? 0))
   }
   const radarData = allThemes.map((theme) => {
     const row: Record<string, string | number> = { theme }
-    for (const ts of themeScores) {
+    for (const ts of radarAccounts) {
       row[ts.username] = Math.round(((ts.themes[theme] ?? 0) / maxByTheme[theme]) * 100)
     }
     return row
@@ -111,17 +131,36 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
 
   return (
     <div className="space-y-6">
-      {/* ── Stat cards ── */}
-      <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
+      {/* ── Show all toggle ── */}
+      {hasMore && (
+        <div className="flex items-center justify-between bg-slate-800/40 border border-slate-700/60 rounded-xl px-4 py-3">
+          <p className="text-xs text-slate-400">
+            Showing <span className="text-white font-semibold">{showAll ? allCompetitorEntries.length : Math.min(MAX_DEFAULT_COMPETITORS, allCompetitorEntries.length)}</span> of <span className="text-white font-semibold">{allCompetitorEntries.length}</span> competitors
+          </p>
+          <button
+            onClick={() => setShowAll((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors font-medium"
+          >
+            {showAll ? (
+              <><ChevronUp className="w-3.5 h-3.5" /> Show fewer</>
+            ) : (
+              <><ChevronDown className="w-3.5 h-3.5" /> Show all {allCompetitorEntries.length} creators</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ── Stat cards — max 4 columns, wraps on overflow ── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
         {metrics.map((m, i) => (
           <div key={m.username} className="rounded-xl border border-slate-700/60 bg-slate-800/60 p-4">
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-3 min-w-0">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: m.color }} />
-              <span className={`font-semibold text-sm ${m.isMe ? 'text-amber-300' : 'text-slate-300'}`}>
+              <span className={`font-semibold text-sm truncate ${m.isMe ? 'text-amber-300' : 'text-slate-300'}`}>
                 @{m.username} {m.isMe && <span className="text-xs text-slate-500 ml-1">(you)</span>}
               </span>
             </div>
-            <div className="text-3xl font-black text-white tracking-tight">{fmt(m.avgViews)}</div>
+            <div className="text-2xl font-black text-white tracking-tight">{fmt(m.avgViews)}</div>
             <div className="text-xs text-slate-500 mb-2">avg views / reel</div>
             <div className="flex items-center gap-1 text-sm">
               <span className="text-emerald-400 font-medium">{m.avgEng.toFixed(1)}%</span>
@@ -131,13 +170,13 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
               <div className="mt-2 pt-2 border-t border-slate-700/50">
                 {m.avgViews > meMetrics.avgViews ? (
                   <div className="flex items-center gap-1 text-xs text-rose-400">
-                    <TrendingUp className="w-3 h-3" />
-                    {Math.round(((m.avgViews - meMetrics.avgViews) / meMetrics.avgViews) * 100)}% more views than you
+                    <TrendingUp className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">{Math.round(((m.avgViews - meMetrics.avgViews) / meMetrics.avgViews) * 100)}% more views</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1 text-xs text-emerald-400">
-                    <TrendingDown className="w-3 h-3" />
-                    You&apos;re beating by {Math.round(((meMetrics.avgViews - m.avgViews) / m.avgViews) * 100)}%
+                    <TrendingDown className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">You&apos;re ahead by {Math.round(((meMetrics.avgViews - m.avgViews) / m.avgViews) * 100)}%</span>
                   </div>
                 )}
               </div>
@@ -149,36 +188,39 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
       {/* ── Avg views bar chart ── */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/60 p-5">
         <h3 className="text-sm font-semibold text-slate-300 mb-4">Avg Views Comparison</h3>
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={Math.max(180, metrics.length * 36)}>
           <BarChart data={chartData} layout="vertical" barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
             <XAxis type="number" tickFormatter={fmt} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={130} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={140} />
             <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
-            <Bar dataKey="views" radius={[0, 4, 4, 0]} maxBarSize={28}>
-              {chartData.map((_, i) => (
-                <rect key={i} fill={ACCOUNT_COLORS[i]} />
-              ))}
-            </Bar>
+            {chartData.map((entry, i) => (
+              <Bar key={entry.name} dataKey="views" data={[entry]} radius={[0, 4, 4, 0]} maxBarSize={24} fill={colorFor(i)} />
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       {/* ── Radar / theme comparison ── */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/60 p-5">
-        <h3 className="text-sm font-semibold text-slate-300 mb-1">Content Theme Comparison</h3>
+        <div className="flex items-start justify-between mb-1">
+          <h3 className="text-sm font-semibold text-slate-300">Content Theme Comparison</h3>
+          {radarTruncated && (
+            <span className="text-xs text-slate-500">Top {MAX_RADAR_ACCOUNTS} accounts shown</span>
+          )}
+        </div>
         <p className="text-xs text-slate-500 mb-4">Based on top-performing reels per account</p>
         <ResponsiveContainer width="100%" height={300}>
           <RadarChart data={radarData}>
             <PolarGrid stroke="#1e293b" />
             <PolarAngleAxis dataKey="theme" tick={{ fontSize: 11, fill: '#64748b' }} />
-            {themeScores.map((ts, i) => (
+            {radarAccounts.map((ts) => (
               <Radar
                 key={ts.username}
                 name={`@${ts.username}`}
                 dataKey={ts.username}
-                stroke={ACCOUNT_COLORS[i]}
-                fill={ACCOUNT_COLORS[i]}
+                stroke={ts.color}
+                fill={ts.color}
                 fillOpacity={0.1}
               />
             ))}
@@ -243,8 +285,8 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
               <div className="w-3 h-3 rounded-full flex-shrink-0 mt-1" style={{ background: m.color }} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold text-slate-200">@{m.username}</span>
-                  {m.isMe && <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">you</span>}
+                  <span className="text-sm font-semibold text-slate-200 truncate">@{m.username}</span>
+                  {m.isMe && <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded flex-shrink-0">you</span>}
                 </div>
                 <p className="text-xs text-slate-400 line-clamp-2 mb-2">{m.topReel.caption || '(no caption)'}</p>
                 <div className="flex items-center gap-3 text-xs text-slate-500">
