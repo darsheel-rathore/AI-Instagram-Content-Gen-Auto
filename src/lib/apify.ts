@@ -4,17 +4,19 @@ const APIFY_TOKEN = process.env.APIFY_TOKEN ?? ''
 const ACTOR_ID = 'shu8hvrXbJbY3Eb9W'
 const BASE = 'https://api.apify.com/v2'
 
-export async function startScrapeRun(instagramUrl: string, limit = 30) {
+export async function startScrapeRun(instagramUrl: string, limit = 30, onlyPostsNewerThan?: string) {
+  const body: Record<string, unknown> = {
+    directUrls: [instagramUrl],
+    resultsType: 'posts',
+    resultsLimit: limit,
+    mediaType: 'VIDEO',
+    addParentData: false,
+  }
+  if (onlyPostsNewerThan) body.onlyPostsNewerThan = onlyPostsNewerThan
   const res = await fetch(`${BASE}/acts/${ACTOR_ID}/runs?token=${APIFY_TOKEN}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      directUrls: [instagramUrl],
-      resultsType: 'posts',
-      resultsLimit: limit,
-      mediaType: 'VIDEO',
-      addParentData: false,
-    }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(`Apify start failed: ${res.status}`)
   const data = await res.json()

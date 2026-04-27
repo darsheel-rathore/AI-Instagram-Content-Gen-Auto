@@ -11,6 +11,7 @@ import ComparisonView from '@/components/ComparisonView'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
+  SlidersHorizontal, Zap,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -18,6 +19,7 @@ type Tab = 'mine' | 'competitors' | 'compare' | 'ideas'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
 type GenerationRecord = { id: string; generatedAt: string; ideas: string }
+type SortBy = 'views' | 'likes' | 'comments'
 
 const MAX_SAVED_GENERATIONS = 15
 
@@ -36,12 +38,13 @@ async function startAndWait(
   instagramUrl: string,
   limit: number,
   onStatus: (s: ScrapeState) => void,
+  onlyPostsNewerThan?: string,
 ): Promise<Reel[]> {
   onStatus('starting')
   const startRes = await fetch('/api/start-scrape', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instagramUrl, limit }),
+    body: JSON.stringify({ instagramUrl, limit, onlyPostsNewerThan }),
   })
   if (!startRes.ok) {
     const err = await startRes.json()
@@ -121,6 +124,16 @@ export default function Dashboard() {
   const [newUsername, setNewUsername] = useState('')
   const [expandedCompetitors, setExpandedCompetitors] = useState<Set<string>>(new Set())
 
+  // Crawl filters
+  const [compFilterReels, setCompFilterReels] = useState(15)
+  const [compFilterDays, setCompFilterDays] = useState(30)
+  const [compFilterSort, setCompFilterSort] = useState<SortBy>('views')
+  const [compCustomReels, setCompCustomReels] = useState('')
+  const [compCustomDays, setCompCustomDays] = useState('')
+  const compFilterReelsRef = useRef(15)
+  const compFilterDaysRef = useRef(30)
+  const compFilterSortRef = useRef<SortBy>('views')
+
   // Ideas
   const [ideasHistory, setIdeasHistory] = useState<GenerationRecord[]>([])
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null)
@@ -134,6 +147,9 @@ export default function Dashboard() {
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
+  useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
+  useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
+  useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
 
   // Keep selectedCompForIdeas in sync as competitors are added / removed
   useEffect(() => {
@@ -197,11 +213,19 @@ export default function Dashboard() {
 
   // ─── Fetch a single competitor ────────────────────────────────────────────
   const fetchCompetitor = useCallback(async (username: string) => {
+    const limit = compFilterReelsRef.current
+    const days = compFilterDaysRef.current
+    const sortBy = compFilterSortRef.current
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const url = `https://www.instagram.com/${username}/`
     setScrapingUsernames((prev) => new Set(Array.from(prev).concat(username)))
     setCompErrors((prev) => { const n = { ...prev }; delete n[username]; return n })
     try {
-      const reels = await startAndWait(url, 15, () => {})
+      const fetched = await startAndWait(url, limit, () => {}, cutoff)
+      const reels = [...fetched].sort((a, b) => {
+        const val = (r: Reel) => sortBy === 'views' ? r.views : sortBy === 'likes' ? r.likes : r.comments
+        return val(b) - val(a)
+      })
       const now = new Date().toISOString()
       setCompetitors((prev) => {
         const updated = { ...prev, [username]: reels }
@@ -479,6 +503,112 @@ export default function Dashboard() {
             <div className="mb-6">
               <h2 className="text-xl font-bold text-white">Competitors</h2>
               <p className="text-slate-500 text-sm mt-0.5">Add any Instagram username to scrape their reels</p>
+            </div>
+
+            {/* Crawl filter panel */}
+            <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-400">Crawl Settings</span>
+                </div>
+                <span className="text-xs text-slate-600 flex items-center gap-1.5">
+                  <Zap className="w-3 h-3 text-amber-600" />
+                  More reels · longer window = more Apify credits consumed
+                </span>
+              </div>
+
+              <div className="space-y-2.5">
+                {/* Reels count */}
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500 w-16 flex-shrink-0">Reels</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {[5, 10, 15].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => { setCompFilterReels(n); setCompCustomReels('') }}
+                        className={clsx(
+                          'text-xs px-2.5 py-1 rounded-lg border transition-colors',
+                          compFilterReels === n && compCustomReels === ''
+                            ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
+                            : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                        )}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={compCustomReels}
+                      onChange={(e) => {
+                        setCompCustomReels(e.target.value)
+                        const n = parseInt(e.target.value)
+                        if (!isNaN(n) && n > 0) setCompFilterReels(n)
+                      }}
+                      placeholder="Custom"
+                      className="w-20 bg-slate-900/60 border border-slate-700 text-slate-300 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                    />
+                  </div>
+                </div>
+
+                {/* Date window */}
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500 w-16 flex-shrink-0">Window</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {([{ label: '24h', val: 1 }, { label: '3d', val: 3 }, { label: '7d', val: 7 }, { label: '15d', val: 15 }, { label: '30d', val: 30 }] as const).map(({ label, val }) => (
+                      <button
+                        key={val}
+                        onClick={() => { setCompFilterDays(val); setCompCustomDays('') }}
+                        className={clsx(
+                          'text-xs px-2.5 py-1 rounded-lg border transition-colors',
+                          compFilterDays === val && compCustomDays === ''
+                            ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
+                            : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={compCustomDays}
+                      onChange={(e) => {
+                        setCompCustomDays(e.target.value)
+                        const n = parseInt(e.target.value)
+                        if (!isNaN(n) && n > 0) setCompFilterDays(n)
+                      }}
+                      placeholder="Days"
+                      className="w-16 bg-slate-900/60 border border-slate-700 text-slate-300 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                    />
+                  </div>
+                </div>
+
+                {/* Sort by */}
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500 w-16 flex-shrink-0">Sort by</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(['views', 'likes', 'comments'] as SortBy[]).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setCompFilterSort(s)}
+                        className={clsx(
+                          'text-xs px-2.5 py-1 rounded-lg border transition-colors capitalize',
+                          compFilterSort === s
+                            ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
+                            : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                        )}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                    <span className="text-xs text-slate-600">· Shares &amp; saves not available via public API</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Add competitor input */}
