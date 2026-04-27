@@ -8,10 +8,11 @@ import PerformanceChart from '@/components/PerformanceChart'
 import ScrapeProgress from '@/components/ScrapeProgress'
 import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
+import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
-  SlidersHorizontal, Zap,
+  SlidersHorizontal, Zap, Wand2,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -158,12 +159,21 @@ export default function Dashboard() {
   const [ideasError, setIdeasError] = useState('')
   const [selectedCompForIdeas, setSelectedCompForIdeas] = useState<Set<string>>(new Set())
 
+  // Prompt factory
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([])
+  const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null)
+  const [noPromptDialog, setNoPromptDialog] = useState(false)
+
   const myReelsRef = useRef(myReels)
   const competitorsRef = useRef(competitors)
   const selectedCompForIdeasRef = useRef(selectedCompForIdeas)
+  const promptTemplatesRef = useRef(promptTemplates)
+  const selectedPromptIdRef = useRef(selectedPromptId)
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
+  useEffect(() => { promptTemplatesRef.current = promptTemplates }, [promptTemplates])
+  useEffect(() => { selectedPromptIdRef.current = selectedPromptId }, [selectedPromptId])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
@@ -185,7 +195,8 @@ export default function Dashboard() {
       loadCache<{ accounts: Record<string, { reels: Reel[]; fetchedAt: string }> }>('competitors'),
       loadCache<GenerationRecord[]>('content_ideas'),
       loadCache<string[]>('competitor_expand_state'),
-    ]).then(([myCache, compCache, ideasCache, expandCache]) => {
+      loadCache<{ templates: PromptTemplate[]; selectedId: string | null }>('prompt_templates'),
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache]) => {
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
         setMyLastSynced(myCache.fetchedAt ?? null)
@@ -207,6 +218,10 @@ export default function Dashboard() {
       }
       if (expandCache?.length) {
         setExpandedCompetitors(new Set(expandCache))
+      }
+      if (promptCache?.templates?.length) {
+        setPromptTemplates(promptCache.templates)
+        setSelectedPromptId(promptCache.selectedId ?? promptCache.templates[0].id)
       }
       setCacheLoading(false)
     })
@@ -402,6 +417,35 @@ export default function Dashboard() {
     })
   }, [compLastSynced])
 
+  // ─── Prompt factory ───────────────────────────────────────────────────────
+  const savePromptTemplate = useCallback((template: PromptTemplate) => {
+    setPromptTemplates((prev) => {
+      const exists = prev.some((t) => t.id === template.id)
+      const updated = exists
+        ? prev.map((t) => t.id === template.id ? template : t)
+        : [...prev, template]
+      const selId = selectedPromptIdRef.current ?? template.id
+      if (!selectedPromptIdRef.current) setSelectedPromptId(template.id)
+      saveCache('prompt_templates', { templates: updated, selectedId: selId })
+      return updated
+    })
+  }, [])
+
+  const deletePromptTemplate = useCallback((id: string) => {
+    setPromptTemplates((prev) => {
+      const updated = prev.filter((t) => t.id !== id)
+      const newSel = selectedPromptIdRef.current === id ? (updated[0]?.id ?? null) : selectedPromptIdRef.current
+      setSelectedPromptId(newSel)
+      saveCache('prompt_templates', { templates: updated, selectedId: newSel })
+      return updated
+    })
+  }, [])
+
+  const selectPromptTemplate = useCallback((id: string) => {
+    setSelectedPromptId(id)
+    saveCache('prompt_templates', { templates: promptTemplatesRef.current, selectedId: id })
+  }, [])
+
   // ─── Transcribe ───────────────────────────────────────────────────────────
   const handleTranscribe = useCallback(async (reel: Reel) => {
     if (!reel.audioUrl) return
@@ -427,6 +471,14 @@ export default function Dashboard() {
 
   // ─── Generate ideas ───────────────────────────────────────────────────────
   const generateIdeas = useCallback(async () => {
+    if (promptTemplatesRef.current.length === 0) {
+      setNoPromptDialog(true)
+      return
+    }
+    const activePrompt =
+      promptTemplatesRef.current.find((t) => t.id === selectedPromptIdRef.current) ??
+      promptTemplatesRef.current[0]
+
     setIdeasLoading(true)
     setIdeasError('')
     try {
@@ -443,6 +495,7 @@ export default function Dashboard() {
             if (sel.size === 0) return {}
             return Object.fromEntries(Object.entries(all).filter(([u]) => sel.has(u)))
           })(),
+          systemPrompt: activePrompt.content,
         }),
       })
       const data = await res.json()
@@ -882,6 +935,15 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* ── Prompt Factory ── */}
+            <PromptFactory
+              templates={promptTemplates}
+              selectedId={selectedPromptId}
+              onSelect={selectPromptTemplate}
+              onSave={savePromptTemplate}
+              onDelete={deletePromptTemplate}
+            />
+
             {(myReels.length === 0 || competitorUsernames.length === 0) && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-4 mb-6 text-sm">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -967,6 +1029,44 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* ── No-prompt dialog ── */}
+      {noPromptDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            onClick={() => setNoPromptDialog(false)}
+          />
+          <div className="relative bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-start gap-3 mb-5">
+              <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                <Wand2 className="w-4 h-4 text-violet-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">No Prompt Set Up</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Create a prompt in Prompt Factory before generating ideas. Your prompt tells the AI how to think,
+                  whose voice to write in, and what kind of content to suggest.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setNoPromptDialog(false)}
+                className="px-4 py-2 text-xs text-slate-400 hover:text-white border border-slate-700 hover:border-slate-600 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => setNoPromptDialog(false)}
+                className="px-4 py-2 text-xs text-white bg-violet-600 hover:bg-violet-500 rounded-lg transition-colors"
+              >
+                Set Up Prompt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
