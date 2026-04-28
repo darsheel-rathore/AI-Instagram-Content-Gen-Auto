@@ -189,6 +189,7 @@ export default function Dashboard() {
   const [noPromptDialog, setNoPromptDialog] = useState(false)
   const [showPromptSizeConfirm, setShowPromptSizeConfirm] = useState(false)
   const [promptSizeEstimate, setPromptSizeEstimate] = useState(0)
+  const [promptSizeCounts, setPromptSizeCounts] = useState({ myCount: 0, compReelCount: 0, creatorCount: 0 })
 
   // AI provider selection + report deletion
   const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini')
@@ -232,15 +233,23 @@ export default function Dashboard() {
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
 
-  // Keep selectedCompForIdeas in sync as competitors are added / removed
+  // Keep selectedCompForIdeas in sync: only prune competitors that were removed, never auto-add
   useEffect(() => {
     setSelectedCompForIdeas((prev) => {
-      const updated = new Set(Array.from(prev))
-      Object.keys(competitors).forEach((u) => updated.add(u))
-      Array.from(prev).forEach((u) => { if (!competitors[u]) updated.delete(u) })
-      return updated
+      const pruned = new Set(Array.from(prev).filter((u) => competitors[u]))
+      return pruned.size === prev.size ? prev : pruned
     })
   }, [competitors])
+
+  // Persist creator + reel selection whenever it changes (after cache has loaded)
+  useEffect(() => {
+    if (cacheLoading) return
+    const selReelIds: Record<string, string[]> = {}
+    for (const [u, ids] of Object.entries(selectedCompReelIds)) {
+      selReelIds[u] = Array.from(ids)
+    }
+    saveCache('idea_selection', { selectedComps: Array.from(selectedCompForIdeas), selectedReelIds: selReelIds })
+  }, [selectedCompForIdeas, selectedCompReelIds, cacheLoading])
 
   // --- Load cache on mount --------------------------------------------------
   useEffect(() => {
@@ -251,7 +260,8 @@ export default function Dashboard() {
       loadCache<string[]>('competitor_expand_state'),
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null }>('prompt_templates'),
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider }>('analysis_settings'),
-    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache]) => {
+      loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache]) => {
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
         setMyLastSynced(myCache.fetchedAt ?? null)
@@ -284,6 +294,16 @@ export default function Dashboard() {
       }
       if (analysisCache?.provider) {
         setSelectedAnalysisProvider(analysisCache.provider)
+      }
+      if (ideaSelCache?.selectedComps) {
+        setSelectedCompForIdeas(new Set(ideaSelCache.selectedComps))
+      }
+      if (ideaSelCache?.selectedReelIds) {
+        const hydrated: Record<string, Set<string>> = {}
+        for (const [u, ids] of Object.entries(ideaSelCache.selectedReelIds)) {
+          hydrated[u] = new Set(ids)
+        }
+        setSelectedCompReelIds(hydrated)
       }
       setCacheLoading(false)
     })
@@ -719,10 +739,30 @@ export default function Dashboard() {
     const template = promptTemplates.find((t) => t.id === selectedPromptId) ?? promptTemplates[0]
     const systemChars = template?.content.length ?? 0
     const perReel = ideaDataSources.has('analysis') ? 280 : ideaDataSources.has('transcript') ? 420 : 220
+
+    // My reels: top 5 + bottom 3 (same slice as the API)
     const myCount = Math.min(5, myReels.length) + Math.min(3, myReels.length)
-    const compCount = Object.values(competitors).reduce((sum, reels) => sum + Math.min(3, reels.length), 0)
-    const est = systemChars + 550 + (myCount + compCount) * perReel
+
+    // Mirror exactly the filtering generateIdeas does so the count matches what's actually sent
+    const sel = selectedCompForIdeas
+    const allKeys = Object.keys(competitors)
+    let compReelCount = 0
+    let creatorCount = 0
+    if (sel.size > 0) {
+      const entries = sel.size >= allKeys.length
+        ? Object.entries(competitors)
+        : Object.entries(competitors).filter(([u]) => sel.has(u))
+      for (const [u, reels] of entries) {
+        const rids = selectedCompReelIds[u]
+        const filtered = rids === undefined ? reels : reels.filter((r) => rids.has(r.id))
+        if (filtered.length > 0) creatorCount++
+        compReelCount += Math.min(3, filtered.length)
+      }
+    }
+
+    const est = systemChars + 550 + (myCount + compReelCount) * perReel
     setPromptSizeEstimate(est)
+    setPromptSizeCounts({ myCount, compReelCount, creatorCount })
     setShowPromptSizeConfirm(true)
   }
 
@@ -1575,6 +1615,7 @@ export default function Dashboard() {
                 </button>
               </div>
             )}
+
           </div>
         )}
       </div>
@@ -1639,7 +1680,7 @@ export default function Dashboard() {
               <span className="text-2xl font-bold text-white tabular-nums">{promptSizeEstimate.toLocaleString()}</span>
               <span className="text-slate-500 text-sm ml-1.5">chars</span>
               <p className="text-xs text-slate-600 mt-1">
-                system prompt + reel summaries ({Math.min(5, myReels.length) + Math.min(3, myReels.length)} mine · {Object.values(competitors).reduce((s, r) => s + Math.min(3, r.length), 0)} competitor)
+                system prompt · {promptSizeCounts.myCount} my reels · {promptSizeCounts.compReelCount} competitor reel{promptSizeCounts.compReelCount !== 1 ? 's' : ''} from {promptSizeCounts.creatorCount} creator{promptSizeCounts.creatorCount !== 1 ? 's' : ''}
               </p>
             </div>
 

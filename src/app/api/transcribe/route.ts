@@ -46,7 +46,10 @@ async function downloadToTemp(url: string, label: string): Promise<string> {
     log(`   ❌ HTTP ${res.status} ${res.statusText}`)
     log(`   Response headers: content-type=${res.headers.get('content-type') ?? 'none'} | x-fb-debug=${res.headers.get('x-fb-debug') ?? 'none'} | retry-after=${res.headers.get('retry-after') ?? 'none'}`)
     log(`   Response body (first 300 chars): ${body.slice(0, 300)}`)
-    throw new Error(`Download failed (${res.status})`)
+    const msg = res.status === 403
+      ? 'Video URL has expired — please Re-sync this creator to get a fresh download link'
+      : `Download failed (${res.status})`
+    throw new Error(msg)
   }
 
   const contentLength = res.headers.get('content-length')

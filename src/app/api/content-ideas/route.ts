@@ -150,6 +150,10 @@ async function generateWithGemini(prompt: string, systemPrompt: string): Promise
 }
 
 
+function log(msg: string) {
+  console.log(`[content-ideas ${new Date().toISOString()}] ${msg}`)
+}
+
 // ─────────────────────────────────────────────
 // ROUTE HANDLER
 // ─────────────────────────────────────────────
@@ -204,6 +208,11 @@ export async function POST(req: NextRequest) {
 
   const competitorContext = buildCompetitorContext(competitorReels, dataSources)
   const prompt = buildPrompt(myTopReels, myLowReels, competitorContext)
+
+  log(`━━━ Generate Ideas — provider: ${provider} | dataSources: ${dataSources.join(', ')} | my reels: ${(myReels ?? []).length} | competitors: ${Object.keys(competitorReels ?? {}).length}`)
+  log(`─── SYSTEM PROMPT (${systemPrompt.length} chars) ───\n${systemPrompt}`)
+  log(`─── USER PROMPT (${prompt.length} chars) ───\n${prompt}`)
+  log(`─── TOTAL (${systemPrompt.length + prompt.length} chars) ───`)
 
   try {
     const generators: Record<Provider, () => Promise<string>> = {
