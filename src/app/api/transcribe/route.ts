@@ -14,12 +14,40 @@ function log(msg: string) {
   console.log(`[transcribe ${new Date().toISOString()}] ${msg}`)
 }
 
+// Instagram CDN URLs contain an `oe` param — Unix expiry as hex (e.g. oe=680F1A2B)
+function logInstagramUrlExpiry(url: string) {
+  try {
+    const oe = new URL(url).searchParams.get('oe')
+    if (!oe) { log(`   URL expiry (oe): not present in URL`); return }
+    const expiryMs = parseInt(oe, 16) * 1000
+    const expiry = new Date(expiryMs)
+    const diffMs = expiryMs - Date.now()
+    const diffMin = Math.round(diffMs / 60_000)
+    if (diffMs < 0) {
+      log(`   URL expiry (oe): ❌ EXPIRED at ${expiry.toISOString()} — ${Math.abs(diffMin)}m ago`)
+    } else {
+      log(`   URL expiry (oe): ✓ valid until ${expiry.toISOString()} — ${diffMin}m from now`)
+    }
+  } catch {
+    log(`   URL expiry (oe): could not parse`)
+  }
+}
+
 async function downloadToTemp(url: string, label: string): Promise<string> {
   log(`⬇  Downloading ${label} — ${url.slice(0, 80)}…`)
+  logInstagramUrlExpiry(url)
   const t0 = Date.now()
 
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) })
-  if (!res.ok) throw new Error(`Download failed (${res.status})`)
+
+  if (!res.ok) {
+    // Log response details to diagnose 403 / other failures
+    const body = await res.text().catch(() => '(unreadable)')
+    log(`   ❌ HTTP ${res.status} ${res.statusText}`)
+    log(`   Response headers: content-type=${res.headers.get('content-type') ?? 'none'} | x-fb-debug=${res.headers.get('x-fb-debug') ?? 'none'} | retry-after=${res.headers.get('retry-after') ?? 'none'}`)
+    log(`   Response body (first 300 chars): ${body.slice(0, 300)}`)
+    throw new Error(`Download failed (${res.status})`)
+  }
 
   const contentLength = res.headers.get('content-length')
   log(`   Server Content-Length: ${contentLength ? `${(parseInt(contentLength) / 1024 / 1024).toFixed(2)} MB` : 'unknown'}`)
