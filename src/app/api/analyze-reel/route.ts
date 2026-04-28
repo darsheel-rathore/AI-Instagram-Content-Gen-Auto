@@ -3,9 +3,13 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import type { ReelAnalysis } from '@/lib/types'
 
-const DEFAULT_SYSTEM_PROMPT = `You are an expert Instagram content analyst specializing in spiritual, astrology, and healing content.
+// Default persona used when no custom analysis prompt is configured
+const DEFAULT_ANALYSIS_PERSONA = `You are an expert Instagram content analyst specializing in spiritual, astrology, and healing content.
 
-Analyze the given reel transcript and extract structured content elements.
+Analyze the given reel transcript and extract structured content elements.`
+
+// Always appended — guarantees structured JSON output regardless of custom persona
+const JSON_FORMAT_REQUIREMENT = `
 
 Return ONLY a valid JSON object with exactly these fields:
 {
@@ -66,7 +70,8 @@ export async function POST(req: NextRequest) {
   }
 
   const provider = (requestedProvider ?? 'gemini') as Provider
-  const systemPrompt = customPrompt?.trim() || DEFAULT_SYSTEM_PROMPT
+  // Custom prompt sets the persona/context; JSON format is always appended so output is always parseable
+  const systemPrompt = (customPrompt?.trim() || DEFAULT_ANALYSIS_PERSONA) + JSON_FORMAT_REQUIREMENT
 
   const keyMap: Record<Provider, string | undefined> = {
     anthropic: process.env.ANTHROPIC_API_KEY,

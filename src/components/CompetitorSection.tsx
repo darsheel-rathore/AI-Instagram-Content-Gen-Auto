@@ -67,6 +67,7 @@ interface Props {
   transcribeAllProgress: { current: number; total: number } | null
   onAnalyze: (reel: Reel) => void
   analyzingId: string | null
+  analyzeErrors?: Record<string, string>
   onAnalyzeAll: () => void
   onStopAnalyzeAll: () => void
   analyzeAllProgress: { current: number; total: number } | null
@@ -74,7 +75,7 @@ interface Props {
 
 const SPEEDS = [1, 1.5, 2] as const
 
-function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing, analyzeAllRunning }: {
+function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing, analyzeAllRunning, analyzeError }: {
   reel: Reel
   rank: number
   onTranscribe: () => void
@@ -83,6 +84,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
   onAnalyze: () => void
   isAnalyzing: boolean
   analyzeAllRunning: boolean
+  analyzeError?: string
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [transcriptOpen, setTranscriptOpen] = useState(false)
@@ -389,6 +391,16 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
             </div>
           )}
 
+          {/* Analyze error */}
+          {analyzeError && (
+            <div className="flex items-start gap-1.5 text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+              <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span className="leading-relaxed">
+                {analyzeError.length > 120 ? analyzeError.slice(0, 120) + '…' : analyzeError}
+              </span>
+            </div>
+          )}
+
           {/* Stats + action buttons */}
           <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 mt-auto">
             <span className="flex items-center gap-1">
@@ -453,7 +465,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 export default function CompetitorSection({
   username, reels, isExpanded, onToggle, lastSynced, isLoading, error, onResync, onRemove,
   onTranscribe, transcribingId, transcribeErrors, onTranscribeAll, onStopTranscribeAll, transcribeAllProgress,
-  onAnalyze, analyzingId, onAnalyzeAll, onStopAnalyzeAll, analyzeAllProgress,
+  onAnalyze, analyzingId, analyzeErrors, onAnalyzeAll, onStopAnalyzeAll, analyzeAllProgress,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('views')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -746,6 +758,7 @@ export default function CompetitorSection({
                   transcribeError={transcribeErrors?.[reel.id]}
                   onAnalyze={() => onAnalyze(reel)}
                   isAnalyzing={analyzingId === reel.id}
+                  analyzeError={analyzeErrors?.[reel.id]}
                   analyzeAllRunning={analyzeAllProgress !== null}
                 />
               ))}

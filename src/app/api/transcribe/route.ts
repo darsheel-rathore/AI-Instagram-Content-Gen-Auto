@@ -92,12 +92,28 @@ export async function POST(req: NextRequest) {
 
   try {
     // Step 1: download full .mp4 to local temp file
-    const primaryLabel = videoUrl ? 'videoUrl (primary)' : 'audioUrl (primary)'
-    const tmpPath = await downloadToTemp(primaryUrl, primaryLabel)
+    // Try videoUrl first; if it fails (e.g. 403 expired URL), fall back to audioUrl
+    let tmpPath: string
+    let filename: string
+
+    if (videoUrl) {
+      try {
+        tmpPath = await downloadToTemp(videoUrl, 'videoUrl (primary)')
+        filename = 'video.mp4'
+      } catch (videoErr) {
+        const errMsg = videoErr instanceof Error ? videoErr.message : String(videoErr)
+        log(`⚠  videoUrl failed (${errMsg}) — trying audioUrl as fallback`)
+        if (!audioUrl) throw videoErr
+        tmpPath = await downloadToTemp(audioUrl, 'audioUrl (fallback after video failure)')
+        filename = 'audio.mp4'
+      }
+    } else {
+      tmpPath = await downloadToTemp(audioUrl!, 'audioUrl (primary)')
+      filename = 'audio.mp4'
+    }
     tmpFiles.push(tmpPath)
 
     // Step 2: run Whisper on the downloaded file
-    const filename = videoUrl ? 'video.mp4' : 'audio.mp4'
     let result = await callWhisper(tmpPath, filename, duration)
 
     // Step 3: if still partial and we have both URLs, retry with the other one

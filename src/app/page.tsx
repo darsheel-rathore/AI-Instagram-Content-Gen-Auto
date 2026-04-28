@@ -164,6 +164,7 @@ export default function Dashboard() {
   const compBulkTranscribingRef = useRef<Record<string, boolean>>({})
   const [compBulkAnalyzing, setCompBulkAnalyzing] = useState<Record<string, { current: number; total: number }>>({})
   const compBulkAnalyzingRef = useRef<Record<string, boolean>>({})
+  const [compAnalyzeErrors, setCompAnalyzeErrors] = useState<Record<string, string>>({})
 
   // Crawl filters
   const [compFilterReels, setCompFilterReels] = useState(15)
@@ -186,6 +187,8 @@ export default function Dashboard() {
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([])
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null)
   const [noPromptDialog, setNoPromptDialog] = useState(false)
+  const [showPromptSizeConfirm, setShowPromptSizeConfirm] = useState(false)
+  const [promptSizeEstimate, setPromptSizeEstimate] = useState(0)
 
   // AI provider selection + report deletion
   const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini')
@@ -564,7 +567,9 @@ export default function Dashboard() {
         body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider }),
       })
       const data = await res.json()
+      if (data.error) throw new Error(data.error as string)
       if (data.analysis) {
+        setCompAnalyzeErrors((prev) => { const n = { ...prev }; delete n[reel.id]; return n })
         setCompetitors((prev) => {
           const updated = {
             ...prev,
@@ -580,6 +585,9 @@ export default function Dashboard() {
           return updated
         })
       }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setCompAnalyzeErrors((prev) => ({ ...prev, [reel.id]: msg }))
     } finally {
       setAnalyzingCompReelId(null)
     }
@@ -706,6 +714,18 @@ export default function Dashboard() {
   }, [myLastSynced])
 
   // --- Generate ideas -------------------------------------------------------
+  function handleStartGenerate() {
+    if (promptTemplates.length === 0) { setNoPromptDialog(true); return }
+    const template = promptTemplates.find((t) => t.id === selectedPromptId) ?? promptTemplates[0]
+    const systemChars = template?.content.length ?? 0
+    const perReel = ideaDataSources.has('analysis') ? 280 : ideaDataSources.has('transcript') ? 420 : 220
+    const myCount = Math.min(5, myReels.length) + Math.min(3, myReels.length)
+    const compCount = Object.values(competitors).reduce((sum, reels) => sum + Math.min(3, reels.length), 0)
+    const est = systemChars + 550 + (myCount + compCount) * perReel
+    setPromptSizeEstimate(est)
+    setShowPromptSizeConfirm(true)
+  }
+
   const generateIdeas = useCallback(async () => {
     if (promptTemplatesRef.current.length === 0) {
       setNoPromptDialog(true)
@@ -1129,6 +1149,7 @@ export default function Dashboard() {
                     transcribeAllProgress={compBulkTranscribing[username] ?? null}
                     onAnalyze={(reel) => handleAnalyzeCompReel(username, reel)}
                     analyzingId={analyzingCompReelId}
+                    analyzeErrors={compAnalyzeErrors}
                     onAnalyzeAll={() => analyzeAllCompetitorReels(username)}
                     onStopAnalyzeAll={() => {
                       delete compBulkAnalyzingRef.current[username]
@@ -1162,7 +1183,7 @@ export default function Dashboard() {
                 <p className="text-slate-500 text-sm mt-0.5">AI strategy based on your performance + competitor data</p>
               </div>
               <button
-                onClick={generateIdeas}
+                onClick={handleStartGenerate}
                 disabled={ideasLoading}
                 className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1388,9 +1409,11 @@ export default function Dashboard() {
                                     <p className="text-xs text-slate-300">{reel.views.toLocaleString()} views Â· {reel.likes.toLocaleString()} likes</p>
                                     <p className="text-xs text-slate-600 truncate">{reel.caption.slice(0, 100)}</p>
                                   </div>
-                                  {reel.transcript && (
+                                  {reel.reelAnalysis ? (
+                                    <span className="text-xs text-amber-500/70 flex-shrink-0 font-medium">analyzed</span>
+                                  ) : reel.transcript ? (
                                     <span className="text-xs text-emerald-600/70 flex-shrink-0 font-medium">transcribed</span>
-                                  )}
+                                  ) : null}
                                 </label>
                               )
                             })}
@@ -1547,7 +1570,7 @@ export default function Dashboard() {
                 <p className="text-slate-500 text-sm mb-6 max-w-xs mx-auto">
                   Click &ldquo;Generate Ideas&rdquo; - AI will analyze your top performers vs competitors and tell you exactly what to make next.
                 </p>
-                <button onClick={generateIdeas} className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors">
+                <button onClick={handleStartGenerate} className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors">
                   Generate Ideas
                 </button>
               </div>
@@ -1588,6 +1611,59 @@ export default function Dashboard() {
                 className="px-4 py-2 text-xs text-white bg-violet-600 hover:bg-violet-500 rounded-lg transition-colors"
               >
                 Set Up Prompt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -- Prompt size confirm -- */}
+      {showPromptSizeConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            onClick={() => setShowPromptSizeConfirm(false)}
+          />
+          <div className="relative bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Confirm prompt size</h3>
+                <p className="text-xs text-slate-400 mt-1">Estimated total characters being sent to the AI:</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3 mb-4 text-center">
+              <span className="text-2xl font-bold text-white tabular-nums">{promptSizeEstimate.toLocaleString()}</span>
+              <span className="text-slate-500 text-sm ml-1.5">chars</span>
+              <p className="text-xs text-slate-600 mt-1">
+                system prompt + reel summaries ({Math.min(5, myReels.length) + Math.min(3, myReels.length)} mine · {Object.values(competitors).reduce((s, r) => s + Math.min(3, r.length), 0)} competitor)
+              </p>
+            </div>
+
+            {promptSizeEstimate > 60_000 && (
+              <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
+                <p className="text-amber-300 text-xs leading-relaxed">
+                  Large prompt — may hit model context limits or cost more. Consider trimming your system prompt or reducing data sources.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowPromptSizeConfirm(false)}
+                className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowPromptSizeConfirm(false); generateIdeas() }}
+                className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors"
+              >
+                Generate
               </button>
             </div>
           </div>
