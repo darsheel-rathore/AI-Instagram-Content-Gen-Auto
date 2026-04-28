@@ -124,7 +124,14 @@ async function generateWithGemini(prompt: string, systemPrompt: string): Promise
 // ROUTE HANDLER
 // ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const provider = (process.env.AI_PROVIDER ?? 'anthropic') as Provider
+  const {
+    myReels,
+    competitorReels,
+    systemPrompt,
+    provider: requestedProvider,
+  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string; provider?: string } = await req.json()
+
+  const provider = ((requestedProvider ?? process.env.AI_PROVIDER ?? 'gemini') as Provider)
 
   const keyMap: Record<Provider, string | undefined> = {
     anthropic: process.env.ANTHROPIC_API_KEY,
@@ -140,12 +147,6 @@ export async function POST(req: NextRequest) {
   if (!keyMap[provider]) {
     return NextResponse.json({ error: `${envMap[provider]} not set` }, { status: 500 })
   }
-
-  const {
-    myReels,
-    competitorReels,
-    systemPrompt,
-  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string } = await req.json()
 
   if (!systemPrompt?.trim()) {
     return NextResponse.json({ error: 'No prompt provided — set one up in Prompt Factory' }, { status: 400 })

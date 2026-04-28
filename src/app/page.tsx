@@ -12,22 +12,41 @@ import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
-  SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight,
+  SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
 
 type Tab = 'mine' | 'competitors' | 'compare' | 'ideas'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
-type GenerationRecord = { id: string; generatedAt: string; ideas: string }
+type AIProvider = 'anthropic' | 'openai' | 'gemini'
+type GenerationRecord = {
+  id: string
+  generatedAt: string
+  ideas: string
+  provider?: AIProvider
+  promptName?: string
+  competitorUsernames?: string[]
+}
 type SortBy = 'views' | 'likes' | 'comments'
 
 const MAX_SAVED_GENERATIONS = 15
 
+const MODEL_NAMES: Record<AIProvider, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.5-flash',
+}
+const PROVIDER_LABELS: Record<AIProvider, string> = {
+  anthropic: 'Claude',
+  openai: 'GPT-4o',
+  gemini: 'Gemini',
+}
+
 const MY_USERNAME = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_username'
 const MY_URL = `https://www.instagram.com/${MY_USERNAME}/`
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// --- Helpers -----------------------------------------------------------------
 
 async function pollStatus(runId: string): Promise<string> {
   const res = await fetch(`/api/scrape-status?runId=${runId}`)
@@ -85,7 +104,7 @@ async function loadCache<T>(key: string): Promise<T | null> {
 function formatGenDate(iso: string) {
   const d = new Date(iso)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-    ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    ' Â· ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
 function timeAgo(iso: string) {
@@ -99,24 +118,24 @@ function timeAgo(iso: string) {
 
 function parseTranscribeError(msg: string): string {
   if (msg.includes('insufficient_quota') || msg.includes('exceeded your current quota')) {
-    return 'No OpenAI credits — top up at platform.openai.com/account/billing'
+    return 'No OpenAI credits - top up at platform.openai.com/account/billing'
   }
   if (msg.includes('invalid_api_key') || msg.includes('Incorrect API key')) {
-    return 'Invalid OpenAI API key — check OPENAI_API_KEY in .env.local'
+    return 'Invalid OpenAI API key - check OPENAI_API_KEY in .env.local'
   }
   if (msg.includes('Audio download failed')) {
-    return 'Could not download audio — the URL may have expired. Try re-syncing.'
+    return 'Could not download audio - the URL may have expired. Try re-syncing.'
   }
   return msg.replace('Whisper API error: ', '').slice(0, 120)
 }
 
 const SCRAPE_MSG: Record<ScrapeState, string> = {
-  idle: '', starting: 'Starting Apify scraper…',
-  polling: 'Scraping Instagram reels… (1–3 min)',
-  fetching: 'Downloading results…', done: '', error: '',
+  idle: '', starting: 'Starting Apify scraper...',
+  polling: 'Scraping Instagram reels... (1-3 min)',
+  fetching: 'Downloading results...', done: '', error: '',
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// --- Page ---------------------------------------------------------------------
 
 export default function Dashboard() {
   const [tab, setTab] = useState<Tab>('mine')
@@ -164,6 +183,10 @@ export default function Dashboard() {
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null)
   const [noPromptDialog, setNoPromptDialog] = useState(false)
 
+  // AI provider selection + report deletion
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
   // Per-creator reel selection for ideas
   const [selectedCompReelIds, setSelectedCompReelIds] = useState<Record<string, Set<string>>>({})
   const [expandedReelPickers, setExpandedReelPickers] = useState<Set<string>>(new Set())
@@ -174,12 +197,14 @@ export default function Dashboard() {
   const promptTemplatesRef = useRef(promptTemplates)
   const selectedPromptIdRef = useRef(selectedPromptId)
   const selectedCompReelIdsRef = useRef<Record<string, Set<string>>>({})
+  const selectedProviderRef = useRef<AIProvider>('gemini')
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
   useEffect(() => { promptTemplatesRef.current = promptTemplates }, [promptTemplates])
   useEffect(() => { selectedPromptIdRef.current = selectedPromptId }, [selectedPromptId])
   useEffect(() => { selectedCompReelIdsRef.current = selectedCompReelIds }, [selectedCompReelIds])
+  useEffect(() => { selectedProviderRef.current = selectedProvider }, [selectedProvider])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
@@ -194,7 +219,7 @@ export default function Dashboard() {
     })
   }, [competitors])
 
-  // ─── Load cache on mount ──────────────────────────────────────────────────
+  // --- Load cache on mount --------------------------------------------------
   useEffect(() => {
     Promise.all([
       loadCache<{ reels: Reel[]; fetchedAt?: string }>('my_reels'),
@@ -233,7 +258,7 @@ export default function Dashboard() {
     })
   }, [])
 
-  // ─── Fetch my reels ───────────────────────────────────────────────────────
+  // --- Fetch my reels -------------------------------------------------------
   const fetchMyReels = useCallback(async () => {
     setMyError('')
     try {
@@ -249,7 +274,7 @@ export default function Dashboard() {
     }
   }, [])
 
-  // ─── Fetch a single competitor ────────────────────────────────────────────
+  // --- Fetch a single competitor --------------------------------------------
   const fetchCompetitor = useCallback(async (username: string) => {
     const limit = compFilterReelsRef.current
     const days = compFilterDaysRef.current
@@ -423,7 +448,7 @@ export default function Dashboard() {
     })
   }, [compLastSynced])
 
-  // ─── Prompt factory ───────────────────────────────────────────────────────
+  // --- Prompt factory -------------------------------------------------------
   const savePromptTemplate = useCallback((template: PromptTemplate) => {
     setPromptTemplates((prev) => {
       const exists = prev.some((t) => t.id === template.id)
@@ -452,7 +477,7 @@ export default function Dashboard() {
     saveCache('prompt_templates', { templates: promptTemplatesRef.current, selectedId: id })
   }, [])
 
-  // ─── Transcribe ───────────────────────────────────────────────────────────
+  // --- Transcribe -----------------------------------------------------------
   const handleTranscribe = useCallback(async (reel: Reel) => {
     if (!reel.audioUrl) return
     setTranscribingId(reel.id)
@@ -475,7 +500,7 @@ export default function Dashboard() {
     }
   }, [myLastSynced])
 
-  // ─── Generate ideas ───────────────────────────────────────────────────────
+  // --- Generate ideas -------------------------------------------------------
   const generateIdeas = useCallback(async () => {
     if (promptTemplatesRef.current.length === 0) {
       setNoPromptDialog(true)
@@ -488,28 +513,33 @@ export default function Dashboard() {
     setIdeasLoading(true)
     setIdeasError('')
     try {
+      const sel = selectedCompForIdeasRef.current
+      const reelSel = selectedCompReelIdsRef.current
+      const all = competitorsRef.current
+      const allKeys = Object.keys(all)
+      const filteredCompetitorReels = (() => {
+        if (sel.size === 0) return {}
+        const entries = sel.size >= allKeys.length
+          ? Object.entries(all)
+          : Object.entries(all).filter(([u]) => sel.has(u))
+        return Object.fromEntries(
+          entries.map(([u, reels]) => {
+            const rids = reelSel[u]
+            return [u, rids === undefined ? reels : reels.filter((r) => rids.has(r.id))]
+          })
+        )
+      })()
+      const includedCompetitors = Object.keys(filteredCompetitorReels)
+      const providerSnapshot = selectedProviderRef.current
+
       const res = await fetch('/api/content-ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           myReels: myReelsRef.current,
-          competitorReels: (() => {
-            const sel = selectedCompForIdeasRef.current
-            const reelSel = selectedCompReelIdsRef.current
-            const all = competitorsRef.current
-            const allKeys = Object.keys(all)
-            if (sel.size === 0) return {}
-            const entries = sel.size >= allKeys.length
-              ? Object.entries(all)
-              : Object.entries(all).filter(([u]) => sel.has(u))
-            return Object.fromEntries(
-              entries.map(([u, reels]) => {
-                const rids = reelSel[u]
-                return [u, rids === undefined ? reels : reels.filter((r) => rids.has(r.id))]
-              })
-            )
-          })(),
+          competitorReels: filteredCompetitorReels,
           systemPrompt: activePrompt.content,
+          provider: providerSnapshot,
         }),
       })
       const data = await res.json()
@@ -518,6 +548,9 @@ export default function Dashboard() {
         id: Date.now().toString(),
         generatedAt: new Date().toISOString(),
         ideas: data.ideas as string,
+        provider: providerSnapshot,
+        promptName: activePrompt.name,
+        competitorUsernames: includedCompetitors,
       }
       setIdeasHistory((prev) => {
         const updated = [record, ...prev].slice(0, MAX_SAVED_GENERATIONS)
@@ -536,7 +569,7 @@ export default function Dashboard() {
   const competitorUsernames = Object.keys(competitors).reverse()
   const selectedIdea = ideasHistory.find((g) => g.id === selectedIdeaId) ?? ideasHistory[0] ?? null
 
-  // ─── Tab nav ──────────────────────────────────────────────────────────────
+  // --- Tab nav --------------------------------------------------------------
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'mine', label: 'My Reels', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'competitors', label: 'Competitors', icon: <Users2 className="w-4 h-4" /> },
@@ -581,14 +614,14 @@ export default function Dashboard() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
 
-        {/* ══ MY REELS ══════════════════════════════════════════════════════════ */}
+        {/* == MY REELS ========================================================== */}
         {tab === 'mine' && (
           <div>
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white">My Reels</h2>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-slate-500 text-sm">Last 30 days · @{MY_USERNAME}</p>
+                  <p className="text-slate-500 text-sm">Last 30 days Â· @{MY_USERNAME}</p>
                   {myLastSynced && (
                     <span className="flex items-center gap-1 text-xs text-slate-600">
                       <Clock className="w-3 h-3" /> {timeAgo(myLastSynced)}
@@ -614,7 +647,7 @@ export default function Dashboard() {
             )}
 
             {['starting', 'polling', 'fetching'].includes(myScrapeState) && (
-              <ScrapeProgress message={SCRAPE_MSG[myScrapeState]} subtext="Apify is scraping your Instagram profile…" />
+              <ScrapeProgress message={SCRAPE_MSG[myScrapeState]} subtext="Apify is scraping your Instagram profile..." />
             )}
 
             {myReels.length > 0 && !['starting', 'polling', 'fetching'].includes(myScrapeState) && (
@@ -659,14 +692,14 @@ export default function Dashboard() {
               cacheLoading ? (
                 <div className="flex items-center justify-center py-24 gap-3 text-slate-500">
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="text-sm">Loading saved data…</span>
+                  <span className="text-sm">Loading saved data...</span>
                 </div>
               ) : (
                 <div className="text-center py-24 border border-dashed border-slate-700 rounded-2xl">
                   <LayoutDashboard className="w-10 h-10 text-slate-600 mx-auto mb-4" />
                   <h3 className="text-white font-semibold mb-2">No data yet</h3>
                   <p className="text-slate-500 text-sm mb-6 max-w-xs mx-auto">
-                    Fetch your last 30 days of reels. Results are cached locally — no re-scrape needed on refresh.
+                    Fetch your last 30 days of reels. Results are cached locally - no re-scrape needed on refresh.
                   </p>
                   <button onClick={fetchMyReels} className="bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors">
                     Fetch My Reels
@@ -677,7 +710,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ══ COMPETITORS ═══════════════════════════════════════════════════════ */}
+        {/* == COMPETITORS ======================================================= */}
         {tab === 'competitors' && (
           <div>
             <div className="mb-6">
@@ -694,7 +727,7 @@ export default function Dashboard() {
                 </div>
                 <span className="text-xs text-slate-600 flex items-center gap-1.5">
                   <Zap className="w-3 h-3 text-amber-600" />
-                  More reels · longer window = more Apify credits consumed
+                  More reels Â· longer window = more Apify credits consumed
                 </span>
               </div>
 
@@ -785,7 +818,7 @@ export default function Dashboard() {
                         {s}
                       </button>
                     ))}
-                    <span className="text-xs text-slate-600">· Shares &amp; saves not available via public API</span>
+                    <span className="text-xs text-slate-600">Â· Shares &amp; saves not available via public API</span>
                   </div>
                 </div>
               </div>
@@ -829,8 +862,8 @@ export default function Dashboard() {
               <div key={username} className="mb-4 rounded-xl border border-violet-500/20 bg-violet-500/5 p-5">
                 <div className="flex items-center gap-3">
                   <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
-                  <span className="text-sm text-violet-300 font-medium">Scraping @{username}…</span>
-                  <span className="text-xs text-slate-500">Apify is fetching their reels (1–3 min)</span>
+                  <span className="text-sm text-violet-300 font-medium">Scraping @{username}...</span>
+                  <span className="text-xs text-slate-500">Apify is fetching their reels (1-3 min)</span>
                 </div>
               </div>
             ))}
@@ -854,7 +887,10 @@ export default function Dashboard() {
                     transcribingId={compTranscribingId}
                     transcribeErrors={compTranscribeErrors}
                     onTranscribeAll={() => transcribeAllCompetitorReels(username)}
-                    onStopTranscribeAll={() => { delete compBulkTranscribingRef.current[username] }}
+                    onStopTranscribeAll={() => {
+                      delete compBulkTranscribingRef.current[username]
+                      setCompBulkTranscribing((prev) => { const n = { ...prev }; delete n[username]; return n })
+                    }}
                     transcribeAllProgress={compBulkTranscribing[username] ?? null}
                   />
                 ))}
@@ -863,18 +899,18 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ══ COMPARE ═══════════════════════════════════════════════════════════ */}
+        {/* == COMPARE =========================================================== */}
         {tab === 'compare' && (
           <div>
             <div className="mb-6">
               <h2 className="text-xl font-bold text-white">Compare</h2>
-              <p className="text-slate-500 text-sm mt-0.5">Me vs competitors — what&apos;s working, what&apos;s not, content gaps</p>
+              <p className="text-slate-500 text-sm mt-0.5">Me vs competitors - what&apos;s working, what&apos;s not, content gaps</p>
             </div>
             <ComparisonView myReels={myReels} competitors={competitors} />
           </div>
         )}
 
-        {/* ══ CONTENT IDEAS ════════════════════════════════════════════════════ */}
+        {/* == CONTENT IDEAS ==================================================== */}
         {tab === 'ideas' && (
           <div>
             <div className="flex items-center justify-between mb-6">
@@ -888,9 +924,31 @@ export default function Dashboard() {
                 className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {ideasLoading
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
                   : <><Sparkles className="w-4 h-4" /> {ideasHistory.length > 0 ? 'Generate New' : 'Generate Ideas'}</>}
               </button>
+            </div>
+
+            {/* ── AI Provider selector ── */}
+            <div className="mb-5 flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-slate-500 font-medium flex-shrink-0">AI Provider:</span>
+              <div className="flex items-center gap-1.5">
+                {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setSelectedProvider(p)}
+                    className={clsx(
+                      'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                      selectedProvider === p
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                    )}
+                  >
+                    {PROVIDER_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-slate-600 font-mono">{MODEL_NAMES[selectedProvider]}</span>
             </div>
 
             {/* ── Competitor filter ── */}
@@ -943,7 +1001,7 @@ export default function Dashboard() {
                 {selectedCompForIdeas.size < competitorUsernames.length && (
                   <p className="text-xs text-slate-600 mt-2">
                     {selectedCompForIdeas.size === 0
-                      ? 'No creators selected — ideas will be based on your reels only'
+                      ? 'No creators selected - ideas will be based on your reels only'
                       : `${selectedCompForIdeas.size} of ${competitorUsernames.length} creators selected`}
                   </p>
                 )}
@@ -1043,7 +1101,7 @@ export default function Dashboard() {
                                     />
                                   )}
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-slate-300">{reel.views.toLocaleString()} views · {reel.likes.toLocaleString()} likes</p>
+                                    <p className="text-xs text-slate-300">{reel.views.toLocaleString()} views Â· {reel.likes.toLocaleString()} likes</p>
                                     <p className="text-xs text-slate-600 truncate">{reel.caption.slice(0, 100)}</p>
                                   </div>
                                   {reel.transcript && (
@@ -1060,7 +1118,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── Prompt Factory ── */}
+            {/* -- Prompt Factory -- */}
             <PromptFactory
               templates={promptTemplates}
               selectedId={selectedPromptId}
@@ -1087,10 +1145,10 @@ export default function Dashboard() {
             )}
 
             {ideasLoading && (
-              <ScrapeProgress message="Analyzing your content + competitors…" subtext="AI is reviewing data and generating a strategy" />
+              <ScrapeProgress message="Analyzing your content + competitors..." subtext="AI is reviewing data and generating a strategy" />
             )}
 
-            {/* ── History selector ── */}
+            {/* -- History selector -- */}
             {ideasHistory.length > 0 && !ideasLoading && (
               <div className="flex items-center gap-3 mb-4 p-3 rounded-xl border border-slate-700/60 bg-slate-800/40">
                 <History className="w-4 h-4 text-slate-500 flex-shrink-0" />
@@ -1101,7 +1159,12 @@ export default function Dashboard() {
                 >
                   {ideasHistory.map((g, i) => (
                     <option key={g.id} value={g.id}>
-                      #{ideasHistory.length - i} — {formatGenDate(g.generatedAt)}{i === 0 ? '  (latest)' : ''}
+                      {[
+                        `#${ideasHistory.length - i} - ${formatGenDate(g.generatedAt)}${i === 0 ? ' (latest)' : ''}`,
+                        g.provider ? PROVIDER_LABELS[g.provider] : null,
+                        g.promptName ? `"${g.promptName}"` : null,
+                        g.competitorUsernames?.length ? g.competitorUsernames.map(u => `@${u}`).join(', ') : null,
+                      ].filter(Boolean).join(' · ')}
                     </option>
                   ))}
                 </select>
@@ -1109,15 +1172,69 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── Selected generation content ── */}
+            {/* -- Selected generation content -- */}
             {selectedIdea && !ideasLoading && (
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6">
-                <div className="flex items-center justify-between mb-5">
+                {/* Header row */}
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-emerald-400" />
                     <span className="text-sm font-semibold text-emerald-300">Content Strategy Report</span>
                   </div>
-                  <span className="text-xs text-slate-500">{formatGenDate(selectedIdea.generatedAt)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">{formatGenDate(selectedIdea.generatedAt)}</span>
+                    {deleteConfirmId === selectedIdea.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-400">Delete this report?</span>
+                        <button
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="text-xs px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                        >Cancel</button>
+                        <button
+                          onClick={() => {
+                            setIdeasHistory((prev) => {
+                              const updated = prev.filter((g) => g.id !== selectedIdea.id)
+                              saveCache('content_ideas', updated)
+                              setSelectedIdeaId(updated[0]?.id ?? null)
+                              return updated
+                            })
+                            setDeleteConfirmId(null)
+                          }}
+                          className="text-xs px-2 py-0.5 rounded border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 transition-colors"
+                        >Delete</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteConfirmId(selectedIdea.id)}
+                        className="p-1 text-slate-600 hover:text-rose-400 transition-colors rounded"
+                        title="Delete report"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Metadata chips */}
+                <div className="flex flex-wrap gap-1.5 mb-5 pb-4 border-b border-emerald-500/10">
+                  {selectedIdea.provider && (
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">
+                      {PROVIDER_LABELS[selectedIdea.provider]} · {MODEL_NAMES[selectedIdea.provider]}
+                    </span>
+                  )}
+                  {selectedIdea.promptName && (
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-300">
+                      {selectedIdea.promptName}
+                    </span>
+                  )}
+                  {selectedIdea.competitorUsernames?.map((u) => (
+                    <span key={u} className="text-xs px-2 py-0.5 rounded-md bg-slate-700/60 border border-slate-600/40 text-slate-400">
+                      @{u}
+                    </span>
+                  ))}
+                  {!selectedIdea.provider && !selectedIdea.promptName && (
+                    <span className="text-xs text-slate-600 italic">No metadata recorded for this generation</span>
+                  )}
                 </div>
                 <div className="space-y-1">
                   {selectedIdea.ideas.split('\n').map((line, i) => {
@@ -1125,10 +1242,10 @@ export default function Dashboard() {
                     if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /)) {
                       return <h3 key={i} className="text-base font-bold text-white mt-5 mb-2 pt-2">{line.replace(/\*\*/g, '').replace(/^#{1,3} /, '')}</h3>
                     }
-                    if (line.startsWith('- ') || line.startsWith('• ')) {
+                    if (line.startsWith('- ') || line.startsWith('-¢ ')) {
                       return (
                         <div key={i} className="flex gap-2 text-slate-300 text-sm py-0.5">
-                          <span className="text-emerald-400 flex-shrink-0 mt-0.5">•</span>
+                          <span className="text-emerald-400 flex-shrink-0 mt-0.5">-¢</span>
                           <span dangerouslySetInnerHTML={{ __html: line.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
                         </div>
                       )
@@ -1144,7 +1261,7 @@ export default function Dashboard() {
                 <Lightbulb className="w-10 h-10 text-slate-600 mx-auto mb-4" />
                 <h3 className="text-white font-semibold mb-2">No ideas yet</h3>
                 <p className="text-slate-500 text-sm mb-6 max-w-xs mx-auto">
-                  Click &ldquo;Generate Ideas&rdquo; — AI will analyze your top performers vs competitors and tell you exactly what to make next.
+                  Click &ldquo;Generate Ideas&rdquo; - AI will analyze your top performers vs competitors and tell you exactly what to make next.
                 </p>
                 <button onClick={generateIdeas} className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition-colors">
                   Generate Ideas
@@ -1155,7 +1272,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ── No-prompt dialog ── */}
+      {/* -- No-prompt dialog -- */}
       {noPromptDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
