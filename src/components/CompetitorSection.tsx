@@ -1,11 +1,12 @@
-﻿'use client'
+'use client'
 
 import { useState, useRef } from 'react'
-import type { Reel } from '@/lib/types'
+import type { Reel, ReelAnalysis } from '@/lib/types'
 import {
   Eye, Heart, MessageCircle, ExternalLink, TrendingUp,
   ChevronDown, ChevronRight, RefreshCw, X, Clock, AlertCircle,
   Play, Pause, Loader2, FileText, Volume2, VolumeX, Maximize, Mic, Download,
+  Copy, Check, Sparkles,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -39,6 +40,15 @@ function fmtTime(s: number) {
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
+const ANALYSIS_FIELDS: { key: keyof ReelAnalysis; label: string }[] = [
+  { key: 'coreInsight', label: 'Core Insight' },
+  { key: 'hook', label: 'Hook' },
+  { key: 'whatToCover', label: 'What to Cover' },
+  { key: 'ending', label: 'Ending / CTA' },
+  { key: 'whyItWorks', label: 'Why it Works' },
+  { key: 'connectsToOffer', label: 'Offer' },
+]
+
 interface Props {
   username: string
   reels: Reel[]
@@ -55,18 +65,24 @@ interface Props {
   onTranscribeAll: () => void
   onStopTranscribeAll: () => void
   transcribeAllProgress: { current: number; total: number } | null
+  onAnalyze: (reel: Reel) => void
+  analyzingId: string | null
 }
 
 const SPEEDS = [1, 1.5, 2] as const
 
-function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError }: {
+function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing }: {
   reel: Reel
   rank: number
   onTranscribe: () => void
   isTranscribing: boolean
   transcribeError?: string
+  onAnalyze: () => void
+  isAnalyzing: boolean
 }) {
   const [modalOpen, setModalOpen] = useState(false)
+  const [transcriptOpen, setTranscriptOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
   const [speed, setSpeed] = useState(1)
@@ -81,6 +97,12 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
   const wordCount = reel.transcript
     ? reel.transcript.split(/\s+/).filter(Boolean).length
     : 0
+
+  const copyTranscript = () => {
+    navigator.clipboard.writeText(reel.transcript ?? '')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const openModal = () => {
     if (!reel.videoUrl) return
@@ -128,7 +150,52 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 
   return (
     <>
-      {/* â”€â”€ Video overlay modal â”€â”€ */}
+      {/* Transcript overlay */}
+      {transcriptOpen && reel.transcript && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setTranscriptOpen(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-lg w-full shadow-2xl flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-semibold text-white">Transcript</span>
+                <span className="text-slate-600 text-xs">{wordCount} words</span>
+                {reel.transcriptPartial && (
+                  <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full">
+                    partial
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copyTranscript}
+                  className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-slate-800"
+                >
+                  {copied
+                    ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</>
+                    : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+                </button>
+                <button
+                  onClick={() => setTranscriptOpen(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <p className="text-sm text-slate-300 leading-relaxed">{reel.transcript}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video overlay modal */}
       {modalOpen && reel.videoUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
@@ -224,14 +291,14 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
         </div>
       )}
 
-      {/* â”€â”€ Reel card â€” items-start keeps thumbnail pinned to the top â”€â”€ */}
+      {/* â"€â"€ Reel card â€" items-start keeps thumbnail pinned to the top â"€â"€ */}
       <div className="flex gap-3 p-3 rounded-lg border border-slate-700/50 bg-slate-800/40 hover:border-slate-600/60 transition-colors items-start">
         {/* Rank badge */}
         <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-400">
           {rank}
         </div>
 
-        {/* Thumbnail â€” fixed w-16 h-24 so duration badge is always within bounds */}
+        {/* Thumbnail â€" fixed w-16 h-24 so duration badge is always within bounds */}
         <div className="relative flex-shrink-0 w-16 h-24">
           {reel.thumbnailUrl ? (
             <button
@@ -247,7 +314,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                 alt=""
                 className="w-full h-full rounded-lg object-cover"
               />
-              {/* Play hover overlay â€” hidden while transcribing */}
+              {/* Play hover overlay â€" hidden while transcribing */}
               {reel.videoUrl && !isTranscribing && (
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-lg">
                   <div className="bg-white/90 rounded-full p-1.5">
@@ -267,7 +334,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
               {isTranscribing && <Loader2 className="w-5 h-5 text-violet-300 animate-spin" />}
             </div>
           )}
-          {/* Duration badge â€” always within the fixed container */}
+          {/* Duration badge â€" always within the fixed container */}
           {reel.duration != null && !isTranscribing && (
             <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 py-0.5 rounded font-semibold tabular-nums leading-none pointer-events-none">
               {fmtTime(reel.duration)}
@@ -277,43 +344,36 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 
         {/* Content */}
         <div className="flex-1 min-w-0 flex flex-col gap-2">
-          <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed">
-            {reel.caption || '(no caption)'}
-          </p>
+          {/* Caption - only when no analysis */}
+          {!reel.reelAnalysis && (
+            <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed">
+              {reel.caption || '(no caption)'}
+            </p>
+          )}
 
           {/* Transcription progress text */}
           {isTranscribing && (
             <div className="flex items-center gap-1.5 text-[11px] text-violet-400">
               <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
-              <span>Transcribing with Whisper AI â€” this may take ~30sâ€¦</span>
+              <span>Transcribing with Whisper AI...</span>
             </div>
           )}
 
-          {/* Transcript block */}
-          {reel.transcript && (
-            <div className="p-2 rounded-md bg-slate-900/60 border border-slate-700/50">
-              <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mb-0.5">
-                <FileText className="w-3 h-3" />
-                <span>Transcript</span>
-                <span className="text-slate-600 ml-0.5">Â· {wordCount} words</span>
-                {/* Re-transcribe icon button */}
-                <button
-                  onClick={onTranscribe}
-                  disabled={isTranscribing}
-                  title="Re-transcribe"
-                  className="ml-auto text-slate-600 hover:text-violet-400 transition-colors disabled:opacity-40"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                </button>
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed max-h-48 overflow-y-auto">{reel.transcript}</p>
-              {/* Partial warning */}
-              {reel.transcriptPartial && (
-                <div className="flex items-start gap-1 text-[11px] text-amber-400 mt-1.5 pt-1.5 border-t border-slate-700/40">
-                  <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                  <span>Audio shorter than video â€” transcript may be incomplete. Try re-transcribing.</span>
-                </div>
-              )}
+          {/* Analysis breakdown */}
+          {reel.reelAnalysis && (
+            <div className="space-y-1.5">
+              {ANALYSIS_FIELDS.map(({ key, label }) => {
+                const value = reel.reelAnalysis![key]
+                if (!value || (key === 'connectsToOffer' && value.toLowerCase() === 'none')) return null
+                return (
+                  <div key={key}>
+                    <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider leading-none mb-0.5">
+                      {label}
+                    </p>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">{value}</p>
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -337,8 +397,16 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
               <MessageCircle className="w-3 h-3 text-violet-400" /> {fmt(reel.comments)}
             </span>
             <span className="text-amber-400">{engRate}%</span>
+            {reel.transcript && (
+              <button
+                onClick={() => setTranscriptOpen(true)}
+                className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                <FileText className="w-3 h-3" /> Transcript
+              </button>
+            )}
             <div className="ml-auto flex items-center gap-2.5">
-              {/* Transcribe button â€” only when no transcript yet */}
+              {/* Transcribe button - only when no transcript yet */}
               {!reel.transcript && (reel.audioUrl || reel.videoUrl) && !isTranscribing && (
                 <button
                   onClick={onTranscribe}
@@ -346,6 +414,20 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                 >
                   <FileText className="w-3 h-3" /> Transcribe
                 </button>
+              )}
+              {/* Analyze button - when transcript exists but no analysis */}
+              {reel.transcript && !reel.reelAnalysis && !isAnalyzing && (
+                <button
+                  onClick={onAnalyze}
+                  className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+                >
+                  <Sparkles className="w-3 h-3" /> Analyze
+                </button>
+              )}
+              {isAnalyzing && (
+                <span className="flex items-center gap-1 text-xs text-amber-400">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Analyzing...
+                </span>
               )}
               <a
                 href={reel.url}
@@ -367,6 +449,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 export default function CompetitorSection({
   username, reels, isExpanded, onToggle, lastSynced, isLoading, error, onResync, onRemove,
   onTranscribe, transcribingId, transcribeErrors, onTranscribeAll, onStopTranscribeAll, transcribeAllProgress,
+  onAnalyze, analyzingId,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('views')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -385,7 +468,7 @@ export default function CompetitorSection({
 
   return (
     <>
-      {/* â”€â”€ Confirmation dialog â”€â”€ */}
+      {/* â"€â"€ Confirmation dialog â"€â"€ */}
       {showConfirm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
@@ -409,13 +492,13 @@ export default function CompetitorSection({
               <span className="text-white font-semibold">
                 {transcribable.length} reel{transcribable.length !== 1 ? 's' : ''}
               </span>{' '}
-              using OpenAI Whisper â€” one at a time, sequentially.
+              using OpenAI Whisper â€" one at a time, sequentially.
             </p>
             <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-5">
               <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
               <p className="text-amber-300 text-xs leading-relaxed">
                 Estimated ~{estimatedMinutes} min (~30s per reel).{' '}
-                <strong>Don&apos;t navigate away</strong> â€” transcription will stop if you leave this page.
+                <strong>Don&apos;t navigate away</strong> â€" transcription will stop if you leave this page.
               </p>
             </div>
             <div className="flex gap-3">
@@ -437,7 +520,7 @@ export default function CompetitorSection({
       )}
 
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
-        {/* â”€â”€ Accordion header â”€â”€ */}
+        {/* â"€â"€ Accordion header â"€â"€ */}
         <button
           onClick={onToggle}
           className="w-full px-5 py-4 flex items-center gap-4 hover:bg-slate-800/60 transition-colors text-left"
@@ -480,7 +563,7 @@ export default function CompetitorSection({
           </div>
         </button>
 
-        {/* â”€â”€ Scrape error â”€â”€ */}
+        {/* â"€â"€ Scrape error â"€â"€ */}
         {error && (
           <div className="mx-5 mb-3 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg p-3 text-xs">
             <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
@@ -488,7 +571,7 @@ export default function CompetitorSection({
           </div>
         )}
 
-        {/* â”€â”€ Expanded body â”€â”€ */}
+        {/* â"€â"€ Expanded body â"€â"€ */}
         {isExpanded && (
           <>
             {/* Sort bar + Transcribe All */}
@@ -563,6 +646,8 @@ export default function CompetitorSection({
                   onTranscribe={() => onTranscribe(reel)}
                   isTranscribing={transcribingId === reel.id}
                   transcribeError={transcribeErrors?.[reel.id]}
+                  onAnalyze={() => onAnalyze(reel)}
+                  isAnalyzing={analyzingId === reel.id}
                 />
               ))}
               {reels.length === 0 && (

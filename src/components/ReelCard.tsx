@@ -1,14 +1,16 @@
-﻿'use client'
+'use client'
 
 import { useState } from 'react'
-import type { Reel } from '@/lib/types'
-import { Eye, Heart, MessageCircle, Play, Loader2, FileText, ExternalLink } from 'lucide-react'
+import type { Reel, ReelAnalysis } from '@/lib/types'
+import { Eye, Heart, MessageCircle, Play, Loader2, FileText, ExternalLink, Copy, Check, X, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 
 interface Props {
   reel: Reel
   onTranscribe?: (reel: Reel) => void
   transcribing?: boolean
+  onAnalyze?: (reel: Reel) => void
+  analyzing?: boolean
 }
 
 const PERF_STYLES = {
@@ -25,113 +27,200 @@ const PERF_BADGE = {
 
 const PERF_LABEL = { top: 'Top Performer', mid: 'Average', low: 'Underperforming' }
 
+const ANALYSIS_FIELDS: { key: keyof ReelAnalysis; label: string }[] = [
+  { key: 'coreInsight', label: 'Core Insight' },
+  { key: 'hook', label: 'Hook' },
+  { key: 'whatToCover', label: 'What to Cover' },
+  { key: 'ending', label: 'Ending / CTA' },
+  { key: 'whyItWorks', label: 'Why it Works' },
+  { key: 'connectsToOffer', label: 'Offer' },
+]
+
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
   return String(n)
 }
 
-export default function ReelCard({ reel, onTranscribe, transcribing }: Props) {
-  const [showTranscript, setShowTranscript] = useState(false)
+export default function ReelCard({ reel, onTranscribe, transcribing, onAnalyze, analyzing }: Props) {
+  const [showOverlay, setShowOverlay] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
+
   const perf = reel.performance ?? 'mid'
   const engRate = reel.views > 0 ? (((reel.likes + reel.comments) / reel.views) * 100).toFixed(1) : '0.0'
-  const postedDate = reel.timestamp ? new Date(reel.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'â€”'
+  const postedDate = reel.timestamp
+    ? new Date(reel.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+    : '-'
+
+  const copyTranscript = () => {
+    navigator.clipboard.writeText(reel.transcript ?? '')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const analysis = reel.reelAnalysis
 
   return (
-    <div className={clsx('rounded-xl border card-hover flex flex-col', PERF_STYLES[perf])}>
-      {/* Thumbnail */}
-      <div className="relative aspect-[9/16] max-h-52 rounded-t-xl overflow-hidden bg-slate-800 flex-shrink-0">
-        {reel.thumbnailUrl && !imgFailed ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`/api/proxy-image?url=${encodeURIComponent(reel.thumbnailUrl)}`}
-            alt="reel"
-            className="w-full h-full object-cover"
-            onError={() => setImgFailed(true)}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-2">
-            <Play className="w-8 h-8 text-slate-600" />
-            {imgFailed && <span className="text-xs text-slate-600">preview unavailable</span>}
-          </div>
-        )}
-        <div className="absolute top-2 right-2">
-          <span className={clsx('text-xs px-2 py-0.5 rounded-full font-medium', PERF_BADGE[perf])}>
-            {PERF_LABEL[perf]}
-          </span>
-        </div>
-        <div className="absolute bottom-2 left-2 text-xs text-white/70 bg-black/50 rounded px-1.5 py-0.5">
-          {postedDate}
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div className="flex justify-between items-center px-3 py-2 border-b border-slate-700/50 gap-2">
-        <div className="flex items-center gap-1 text-slate-300 min-w-0">
-          <Eye className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-          <span className="text-sm font-semibold">{fmt(reel.views)}</span>
-        </div>
-        <div className="flex items-center gap-1 text-slate-300">
-          <Heart className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
-          <span className="text-sm">{fmt(reel.likes)}</span>
-        </div>
-        <div className="flex items-center gap-1 text-slate-300">
-          <MessageCircle className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
-          <span className="text-sm">{fmt(reel.comments)}</span>
-        </div>
-        <div className="text-xs text-amber-400 font-mono">{engRate}%</div>
-      </div>
-
-      {/* Caption */}
-      <div className="px-3 pt-2 pb-1 flex-1">
-        <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
-          {reel.caption || '(no caption)'}
-        </p>
-      </div>
-
-      {/* Transcript section */}
-      {reel.transcript && (
-        <div className="mx-3 mb-2 mt-1">
-          <button
-            onClick={() => setShowTranscript(!showTranscript)}
-            className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
+    <>
+      {/* Transcript overlay */}
+      {showOverlay && reel.transcript && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setShowOverlay(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-lg w-full shadow-2xl flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
           >
-            <FileText className="w-3 h-3" />
-            {showTranscript ? 'Hide transcript' : 'Show transcript'}
-          </button>
-          {showTranscript && (
-            <p className="mt-1.5 text-xs text-slate-400 bg-slate-800/80 rounded p-2 leading-relaxed overflow-y-auto max-h-40">
-              {reel.transcript}
-            </p>
-          )}
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-semibold text-white">Transcript</span>
+                {reel.transcriptPartial && (
+                  <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full">
+                    partial
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copyTranscript}
+                  className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-slate-800"
+                >
+                  {copied
+                    ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</>
+                    : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+                </button>
+                <button
+                  onClick={() => setShowOverlay(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <p className="text-sm text-slate-300 leading-relaxed">{reel.transcript}</p>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Footer actions */}
-      <div className="flex gap-2 px-3 pb-3 pt-1">
-        {!reel.transcript && reel.audioUrl && onTranscribe && (
-          <button
-            onClick={() => onTranscribe(reel)}
-            disabled={transcribing}
-            className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-600/30 rounded-lg py-1.5 transition-colors disabled:opacity-50"
-          >
-            {transcribing ? (
-              <><Loader2 className="w-3 h-3 animate-spin" /> Transcribingâ€¦</>
-            ) : (
-              <><FileText className="w-3 h-3" /> Transcribe</>
-            )}
-          </button>
+      <div className={clsx('rounded-xl border card-hover flex flex-col', PERF_STYLES[perf])}>
+        {/* Thumbnail */}
+        <div className="relative aspect-[9/16] max-h-52 rounded-t-xl overflow-hidden bg-slate-800 flex-shrink-0">
+          {reel.thumbnailUrl && !imgFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/proxy-image?url=${encodeURIComponent(reel.thumbnailUrl)}`}
+              alt="reel"
+              className="w-full h-full object-cover"
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full gap-2">
+              <Play className="w-8 h-8 text-slate-600" />
+              {imgFailed && <span className="text-xs text-slate-600">preview unavailable</span>}
+            </div>
+          )}
+          <div className="absolute top-2 right-2">
+            <span className={clsx('text-xs px-2 py-0.5 rounded-full font-medium', PERF_BADGE[perf])}>
+              {PERF_LABEL[perf]}
+            </span>
+          </div>
+          <div className="absolute bottom-2 left-2 text-xs text-white/70 bg-black/50 rounded px-1.5 py-0.5">
+            {postedDate}
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center px-3 py-2 border-b border-slate-700/50 gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1 text-slate-300 min-w-0">
+            <Eye className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+            <span className="text-sm font-semibold">{fmt(reel.views)}</span>
+          </div>
+          <div className="flex items-center gap-1 text-slate-300">
+            <Heart className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+            <span className="text-sm">{fmt(reel.likes)}</span>
+          </div>
+          <div className="flex items-center gap-1 text-slate-300">
+            <MessageCircle className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
+            <span className="text-sm">{fmt(reel.comments)}</span>
+          </div>
+          <span className="text-xs text-amber-400 font-mono">{engRate}%</span>
+          {reel.transcript && (
+            <button
+              onClick={() => setShowOverlay(true)}
+              className="ml-auto flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 transition-colors flex-shrink-0"
+            >
+              <FileText className="w-3 h-3" />
+              Transcript
+            </button>
+          )}
+        </div>
+
+        {/* Caption - only when no analysis */}
+        {!analysis && (
+          <div className="px-3 pt-2 pb-1 flex-1">
+            <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
+              {reel.caption || '(no caption)'}
+            </p>
+          </div>
         )}
-        <a
-          href={reel.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors ml-auto"
-        >
-          <ExternalLink className="w-3 h-3" />
-        </a>
+
+        {/* Analysis breakdown */}
+        {analysis && (
+          <div className="px-3 pt-2 pb-2 flex-1 space-y-2">
+            {ANALYSIS_FIELDS.map(({ key, label }) => {
+              const value = analysis[key]
+              if (!value || (key === 'connectsToOffer' && value.toLowerCase() === 'none')) return null
+              return (
+                <div key={key}>
+                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider leading-none mb-0.5">
+                    {label}
+                  </p>
+                  <p className="text-[11px] text-slate-300 leading-relaxed line-clamp-2">{value}</p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Footer actions */}
+        <div className="flex gap-2 px-3 pb-3 pt-1 border-t border-slate-700/30 mt-auto">
+          {!reel.transcript && (reel.audioUrl || reel.videoUrl) && onTranscribe && (
+            <button
+              onClick={() => onTranscribe(reel)}
+              disabled={transcribing}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-600/30 rounded-lg py-1.5 transition-colors disabled:opacity-50"
+            >
+              {transcribing
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Transcribing...</>
+                : <><FileText className="w-3 h-3" /> Transcribe</>}
+            </button>
+          )}
+          {reel.transcript && !analysis && onAnalyze && (
+            <button
+              onClick={() => onAnalyze(reel)}
+              disabled={analyzing}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-lg py-1.5 transition-colors disabled:opacity-50"
+            >
+              {analyzing
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Analyzing...</>
+                : <><Sparkles className="w-3 h-3" /> Analyze</>}
+            </button>
+          )}
+          <a
+            href={reel.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors ml-auto"
+          >
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
       </div>
-    </div>
+    </>
   )
 }

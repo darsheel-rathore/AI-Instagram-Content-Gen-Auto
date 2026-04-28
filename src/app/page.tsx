@@ -148,6 +148,7 @@ export default function Dashboard() {
   const [myError, setMyError] = useState('')
   const [perfFilter, setPerfFilter] = useState<PerfFilter>('all')
   const [transcribingId, setTranscribingId] = useState<string | null>(null)
+  const [analyzingMyReelId, setAnalyzingMyReelId] = useState<string | null>(null)
 
   // Competitors
   const [competitors, setCompetitors] = useState<Record<string, Reel[]>>({})
@@ -157,6 +158,7 @@ export default function Dashboard() {
   const [newUsername, setNewUsername] = useState('')
   const [expandedCompetitors, setExpandedCompetitors] = useState<Set<string>>(new Set())
   const [compTranscribingId, setCompTranscribingId] = useState<string | null>(null)
+  const [analyzingCompReelId, setAnalyzingCompReelId] = useState<string | null>(null)
   const [compTranscribeErrors, setCompTranscribeErrors] = useState<Record<string, string>>({})
   const [compBulkTranscribing, setCompBulkTranscribing] = useState<Record<string, { current: number; total: number }>>({})
   const compBulkTranscribingRef = useRef<Record<string, boolean>>({})
@@ -345,12 +347,22 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.error) throw new Error(data.error as string)
       if (data.transcript) {
+        let reelAnalysis = undefined
+        try {
+          const aRes = await fetch('/api/analyze-reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: data.transcript }),
+          })
+          const aData = await aRes.json()
+          if (aData.analysis) reelAnalysis = aData.analysis
+        } catch { /* analysis failure doesn't block transcript save */ }
         setCompetitors((prev) => {
           const updated = {
             ...prev,
             [username]: (prev[username] ?? []).map((r) =>
               r.id === reel.id
-                ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true }
+                ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true, ...(reelAnalysis && { reelAnalysis }) }
                 : r
             ),
           }
@@ -396,12 +408,22 @@ export default function Dashboard() {
         const data = await res.json()
         if (data.error) throw new Error(data.error as string)
         if (data.transcript) {
+          let reelAnalysis = undefined
+          try {
+            const aRes = await fetch('/api/analyze-reel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transcript: data.transcript }),
+            })
+            const aData = await aRes.json()
+            if (aData.analysis) reelAnalysis = aData.analysis
+          } catch { /* analysis failure doesn't block transcript save */ }
           setCompetitors((prev) => {
             const updated = {
               ...prev,
               [username]: (prev[username] ?? []).map((r) =>
                 r.id === reel.id
-                  ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true }
+                  ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true, ...(reelAnalysis && { reelAnalysis }) }
                   : r
               ),
             }
@@ -448,6 +470,37 @@ export default function Dashboard() {
     })
   }, [compLastSynced])
 
+  const handleAnalyzeCompReel = useCallback(async (username: string, reel: Reel) => {
+    if (!reel.transcript) return
+    setAnalyzingCompReelId(reel.id)
+    try {
+      const res = await fetch('/api/analyze-reel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: reel.transcript }),
+      })
+      const data = await res.json()
+      if (data.analysis) {
+        setCompetitors((prev) => {
+          const updated = {
+            ...prev,
+            [username]: (prev[username] ?? []).map((r) =>
+              r.id === reel.id ? { ...r, reelAnalysis: data.analysis } : r
+            ),
+          }
+          const accounts: Record<string, { reels: Reel[]; fetchedAt: string }> = {}
+          for (const [u, r] of Object.entries(updated)) {
+            accounts[u] = { reels: r, fetchedAt: compLastSynced[u] ?? '' }
+          }
+          saveCache('competitors', { accounts })
+          return updated
+        })
+      }
+    } finally {
+      setAnalyzingCompReelId(null)
+    }
+  }, [compLastSynced])
+
   // --- Prompt factory -------------------------------------------------------
   const savePromptTemplate = useCallback((template: PromptTemplate) => {
     setPromptTemplates((prev) => {
@@ -479,24 +532,60 @@ export default function Dashboard() {
 
   // --- Transcribe -----------------------------------------------------------
   const handleTranscribe = useCallback(async (reel: Reel) => {
-    if (!reel.audioUrl) return
+    if (!reel.audioUrl && !reel.videoUrl) return
     setTranscribingId(reel.id)
     try {
       const res = await fetch('/api/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioUrl: reel.audioUrl }),
+        body: JSON.stringify({ audioUrl: reel.audioUrl, videoUrl: reel.videoUrl, duration: reel.duration }),
       })
       const data = await res.json()
       if (data.transcript) {
+        let reelAnalysis = undefined
+        try {
+          const aRes = await fetch('/api/analyze-reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: data.transcript }),
+          })
+          const aData = await aRes.json()
+          if (aData.analysis) reelAnalysis = aData.analysis
+        } catch { /* analysis failure doesn't block transcript save */ }
         setMyReels((prev) => {
-          const updated = prev.map((r) => r.id === reel.id ? { ...r, transcript: data.transcript } : r)
+          const updated = prev.map((r) =>
+            r.id === reel.id
+              ? { ...r, transcript: data.transcript as string, transcriptPartial: data.partial === true, ...(reelAnalysis && { reelAnalysis }) }
+              : r
+          )
           saveCache('my_reels', { reels: updated, fetchedAt: myLastSynced })
           return updated
         })
       }
     } finally {
       setTranscribingId(null)
+    }
+  }, [myLastSynced])
+
+  const handleAnalyzeMyReel = useCallback(async (reel: Reel) => {
+    if (!reel.transcript) return
+    setAnalyzingMyReelId(reel.id)
+    try {
+      const res = await fetch('/api/analyze-reel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: reel.transcript }),
+      })
+      const data = await res.json()
+      if (data.analysis) {
+        setMyReels((prev) => {
+          const updated = prev.map((r) => r.id === reel.id ? { ...r, reelAnalysis: data.analysis } : r)
+          saveCache('my_reels', { reels: updated, fetchedAt: myLastSynced })
+          return updated
+        })
+      }
+    } finally {
+      setAnalyzingMyReelId(null)
     }
   }, [myLastSynced])
 
@@ -679,7 +768,7 @@ export default function Dashboard() {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {filteredReels.map((reel) => (
-                    <ReelCard key={reel.id} reel={reel} onTranscribe={handleTranscribe} transcribing={transcribingId === reel.id} />
+                    <ReelCard key={reel.id} reel={reel} onTranscribe={handleTranscribe} transcribing={transcribingId === reel.id} onAnalyze={handleAnalyzeMyReel} analyzing={analyzingMyReelId === reel.id} />
                   ))}
                 </div>
                 {filteredReels.length === 0 && (
@@ -892,6 +981,8 @@ export default function Dashboard() {
                       setCompBulkTranscribing((prev) => { const n = { ...prev }; delete n[username]; return n })
                     }}
                     transcribeAllProgress={compBulkTranscribing[username] ?? null}
+                    onAnalyze={(reel) => handleAnalyzeCompReel(username, reel)}
+                    analyzingId={analyzingCompReelId}
                   />
                 ))}
               </div>

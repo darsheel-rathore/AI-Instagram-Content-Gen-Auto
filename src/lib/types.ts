@@ -1,3 +1,12 @@
+export interface ReelAnalysis {
+  coreInsight: string
+  hook: string
+  whatToCover: string
+  ending: string
+  whyItWorks: string
+  connectsToOffer: string
+}
+
 export interface Reel {
   id: string
   url: string
@@ -13,6 +22,7 @@ export interface Reel {
   ownerUsername: string
   transcript?: string
   transcriptPartial?: boolean
+  reelAnalysis?: ReelAnalysis
   performance?: 'top' | 'mid' | 'low'
 }
 
