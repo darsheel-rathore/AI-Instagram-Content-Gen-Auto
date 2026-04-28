@@ -4,6 +4,38 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { Reel } from '@/lib/types'
 
 type Provider = 'anthropic' | 'openai' | 'gemini'
+type DataSource = 'caption' | 'transcript' | 'analysis'
+
+
+// ─────────────────────────────────────────────
+// CONTENT SIGNAL HELPER
+// ─────────────────────────────────────────────
+function getReelContent(r: Reel, dataSources: DataSource[]): string {
+  const parts: string[] = []
+  const onlyAnalysis = dataSources.length === 1 && dataSources.includes('analysis')
+
+  if (dataSources.includes('analysis')) {
+    if (r.reelAnalysis) {
+      const a = r.reelAnalysis
+      const offer = a.connectsToOffer && a.connectsToOffer.toLowerCase() !== 'none' ? ` | Offer: ${a.connectsToOffer}` : ''
+      parts.push(`Analysis — Core Insight: ${a.coreInsight} | Hook: ${a.hook} | Why it works: ${a.whyItWorks}${offer}`)
+    } else if (onlyAnalysis && r.transcript) {
+      parts.push(`Transcript excerpt: "${r.transcript.slice(0, 500)}"`)
+    } else if (onlyAnalysis) {
+      parts.push(`Caption: ${r.caption.slice(0, 200)}`)
+    }
+  }
+
+  if (dataSources.includes('transcript') && r.transcript) {
+    parts.push(`Transcript excerpt: "${r.transcript.slice(0, 400)}"`)
+  }
+
+  if (dataSources.includes('caption') && r.caption) {
+    parts.push(`Caption: ${r.caption.slice(0, 200)}`)
+  }
+
+  return parts.length > 0 ? parts.join('\n  ') : `Caption: ${r.caption.slice(0, 200)}`
+}
 
 
 // ─────────────────────────────────────────────
@@ -42,7 +74,7 @@ Ending/CTA: (Question, reframe, or soft invitation — never a hard sell)
 Why this works for her audience: (One line)
 Connects to offer: (Birth Chart Reading / Hypnotherapy Package / Workshop / PDF — or "None")
 
-Use view counts and transcript signals (where available) as evidence for why each idea will work.
+Use view counts and content signals (where available) as evidence for why each idea will work.
 Hold the voice standard from your instructions — every idea must make her ideal client feel understood before it makes them feel informed.`
 }
 
@@ -50,7 +82,7 @@ Hold the voice standard from your instructions — every idea must make her idea
 // ─────────────────────────────────────────────
 // COMPETITOR CONTEXT BUILDER
 // ─────────────────────────────────────────────
-function buildCompetitorContext(competitorReels: Record<string, Reel[]>): string {
+function buildCompetitorContext(competitorReels: Record<string, Reel[]>, dataSources: DataSource[]): string {
   return Object.entries(competitorReels ?? {})
     .map(([username, reels]) => {
       const topReels = [...reels]
@@ -58,10 +90,8 @@ function buildCompetitorContext(competitorReels: Record<string, Reel[]>): string
         .slice(0, 3)
         .map((r) => {
           const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
-          const transcript = r.transcript
-            ? `\n    Transcript excerpt: "${r.transcript.slice(0, 600)}..."`
-            : ''
-          return `  - ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement | Caption: ${r.caption.slice(0, 200)}${transcript}`
+          const content = getReelContent(r, dataSources)
+          return `  - ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement\n  ${content}`
         })
         .join('\n')
       return `@${username} top reels:\n${topReels}`
@@ -129,9 +159,11 @@ export async function POST(req: NextRequest) {
     competitorReels,
     systemPrompt,
     provider: requestedProvider,
-  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string; provider?: string } = await req.json()
+    dataSources: requestedSources,
+  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string; provider?: string; dataSources?: string[] } = await req.json()
 
   const provider = ((requestedProvider ?? process.env.AI_PROVIDER ?? 'gemini') as Provider)
+  const dataSources = ((requestedSources?.length ? requestedSources : ['analysis']) as DataSource[])
 
   const keyMap: Record<Provider, string | undefined> = {
     anthropic: process.env.ANTHROPIC_API_KEY,
@@ -152,27 +184,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No prompt provided — set one up in Prompt Factory' }, { status: 400 })
   }
 
-  const reelSummary = (r: Reel, captionLen: number, transcriptLen = 0) => {
+  const reelSummary = (r: Reel) => {
     const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
-    const transcript = transcriptLen && r.transcript
-      ? `\n  Transcript excerpt: "${r.transcript.slice(0, transcriptLen)}..."`
-      : ''
-    return `- ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement | Caption: ${r.caption.slice(0, captionLen)}${transcript}`
+    const content = getReelContent(r, dataSources)
+    return `- ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement\n  ${content}`
   }
 
   const myTopReels = [...(myReels ?? [])]
     .sort((a, b) => b.views - a.views)
     .slice(0, 5)
-    .map((r) => reelSummary(r, 200, 500))
+    .map((r) => reelSummary(r))
     .join('\n')
 
   const myLowReels = [...(myReels ?? [])]
     .sort((a, b) => a.views - b.views)
     .slice(0, 3)
-    .map((r) => reelSummary(r, 150, 300))
+    .map((r) => reelSummary(r))
     .join('\n')
 
-  const competitorContext = buildCompetitorContext(competitorReels)
+  const competitorContext = buildCompetitorContext(competitorReels, dataSources)
   const prompt = buildPrompt(myTopReels, myLowReels, competitorContext)
 
   try {

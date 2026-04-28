@@ -162,6 +162,8 @@ export default function Dashboard() {
   const [compTranscribeErrors, setCompTranscribeErrors] = useState<Record<string, string>>({})
   const [compBulkTranscribing, setCompBulkTranscribing] = useState<Record<string, { current: number; total: number }>>({})
   const compBulkTranscribingRef = useRef<Record<string, boolean>>({})
+  const [compBulkAnalyzing, setCompBulkAnalyzing] = useState<Record<string, { current: number; total: number }>>({})
+  const compBulkAnalyzingRef = useRef<Record<string, boolean>>({})
 
   // Crawl filters
   const [compFilterReels, setCompFilterReels] = useState(15)
@@ -189,6 +191,14 @@ export default function Dashboard() {
   const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
+  // Analysis settings (competitors tab)
+  const [analysisPromptTemplates, setAnalysisPromptTemplates] = useState<PromptTemplate[]>([])
+  const [selectedAnalysisPromptId, setSelectedAnalysisPromptId] = useState<string | null>(null)
+  const [selectedAnalysisProvider, setSelectedAnalysisProvider] = useState<AIProvider>('gemini')
+
+  // Ideas data sources
+  const [ideaDataSources, setIdeaDataSources] = useState<Set<string>>(new Set(['analysis']))
+
   // Per-creator reel selection for ideas
   const [selectedCompReelIds, setSelectedCompReelIds] = useState<Record<string, Set<string>>>({})
   const [expandedReelPickers, setExpandedReelPickers] = useState<Set<string>>(new Set())
@@ -200,6 +210,10 @@ export default function Dashboard() {
   const selectedPromptIdRef = useRef(selectedPromptId)
   const selectedCompReelIdsRef = useRef<Record<string, Set<string>>>({})
   const selectedProviderRef = useRef<AIProvider>('gemini')
+  const analysisPromptTemplatesRef = useRef<PromptTemplate[]>([])
+  const selectedAnalysisPromptIdRef = useRef<string | null>(null)
+  const selectedAnalysisProviderRef = useRef<AIProvider>('gemini')
+  const ideaDataSourcesRef = useRef<Set<string>>(new Set(['analysis']))
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
@@ -207,6 +221,10 @@ export default function Dashboard() {
   useEffect(() => { selectedPromptIdRef.current = selectedPromptId }, [selectedPromptId])
   useEffect(() => { selectedCompReelIdsRef.current = selectedCompReelIds }, [selectedCompReelIds])
   useEffect(() => { selectedProviderRef.current = selectedProvider }, [selectedProvider])
+  useEffect(() => { analysisPromptTemplatesRef.current = analysisPromptTemplates }, [analysisPromptTemplates])
+  useEffect(() => { selectedAnalysisPromptIdRef.current = selectedAnalysisPromptId }, [selectedAnalysisPromptId])
+  useEffect(() => { selectedAnalysisProviderRef.current = selectedAnalysisProvider }, [selectedAnalysisProvider])
+  useEffect(() => { ideaDataSourcesRef.current = ideaDataSources }, [ideaDataSources])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
@@ -229,7 +247,8 @@ export default function Dashboard() {
       loadCache<GenerationRecord[]>('content_ideas'),
       loadCache<string[]>('competitor_expand_state'),
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null }>('prompt_templates'),
-    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache]) => {
+      loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider }>('analysis_settings'),
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache]) => {
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
         setMyLastSynced(myCache.fetchedAt ?? null)
@@ -255,6 +274,13 @@ export default function Dashboard() {
       if (promptCache?.templates?.length) {
         setPromptTemplates(promptCache.templates)
         setSelectedPromptId(promptCache.selectedId ?? promptCache.templates[0].id)
+      }
+      if (analysisCache?.templates?.length) {
+        setAnalysisPromptTemplates(analysisCache.templates)
+        setSelectedAnalysisPromptId(analysisCache.selectedId ?? analysisCache.templates[0].id)
+      }
+      if (analysisCache?.provider) {
+        setSelectedAnalysisProvider(analysisCache.provider)
       }
       setCacheLoading(false)
     })
@@ -349,10 +375,12 @@ export default function Dashboard() {
       if (data.transcript) {
         let reelAnalysis = undefined
         try {
+          const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
+          const provider = selectedAnalysisProviderRef.current
           const aRes = await fetch('/api/analyze-reel', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript: data.transcript }),
+            body: JSON.stringify({ transcript: data.transcript, ...(systemPrompt && { systemPrompt }), provider }),
           })
           const aData = await aRes.json()
           if (aData.analysis) reelAnalysis = aData.analysis
@@ -410,10 +438,12 @@ export default function Dashboard() {
         if (data.transcript) {
           let reelAnalysis = undefined
           try {
+            const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
+            const provider = selectedAnalysisProviderRef.current
             const aRes = await fetch('/api/analyze-reel', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transcript: data.transcript }),
+              body: JSON.stringify({ transcript: data.transcript, ...(systemPrompt && { systemPrompt }), provider }),
             })
             const aData = await aRes.json()
             if (aData.analysis) reelAnalysis = aData.analysis
@@ -450,6 +480,58 @@ export default function Dashboard() {
     })
   }, [compLastSynced])
 
+  const analyzeAllCompetitorReels = useCallback(async (username: string) => {
+    const reels = competitorsRef.current[username] ?? []
+    const toAnalyze = reels.filter((r) => r.transcript && !r.reelAnalysis)
+    if (toAnalyze.length === 0) return
+
+    compBulkAnalyzingRef.current[username] = true
+    setCompBulkAnalyzing((prev) => ({ ...prev, [username]: { current: 0, total: toAnalyze.length } }))
+
+    for (let i = 0; i < toAnalyze.length; i++) {
+      if (!compBulkAnalyzingRef.current[username]) break
+      const reel = toAnalyze[i]
+      setCompBulkAnalyzing((prev) => ({ ...prev, [username]: { current: i + 1, total: toAnalyze.length } }))
+      setAnalyzingCompReelId(reel.id)
+
+      const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
+      const provider = selectedAnalysisProviderRef.current
+
+      try {
+        const res = await fetch('/api/analyze-reel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider }),
+        })
+        const data = await res.json()
+        if (data.analysis) {
+          setCompetitors((prev) => {
+            const updated = {
+              ...prev,
+              [username]: (prev[username] ?? []).map((r) =>
+                r.id === reel.id ? { ...r, reelAnalysis: data.analysis } : r
+              ),
+            }
+            const accounts: Record<string, { reels: Reel[]; fetchedAt: string }> = {}
+            for (const [u, r] of Object.entries(updated)) {
+              accounts[u] = { reels: r, fetchedAt: compLastSynced[u] ?? '' }
+            }
+            saveCache('competitors', { accounts })
+            return updated
+          })
+        }
+      } catch { /* continue on per-reel error */ }
+    }
+
+    delete compBulkAnalyzingRef.current[username]
+    setAnalyzingCompReelId(null)
+    setCompBulkAnalyzing((prev) => {
+      const updated = { ...prev }
+      delete updated[username]
+      return updated
+    })
+  }, [compLastSynced])
+
   const removeCompetitor = useCallback((username: string) => {
     setCompetitors((prev) => {
       const updated = { ...prev }
@@ -473,11 +555,13 @@ export default function Dashboard() {
   const handleAnalyzeCompReel = useCallback(async (username: string, reel: Reel) => {
     if (!reel.transcript) return
     setAnalyzingCompReelId(reel.id)
+    const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
+    const provider = selectedAnalysisProviderRef.current
     try {
       const res = await fetch('/api/analyze-reel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: reel.transcript }),
+        body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider }),
       })
       const data = await res.json()
       if (data.analysis) {
@@ -528,6 +612,38 @@ export default function Dashboard() {
   const selectPromptTemplate = useCallback((id: string) => {
     setSelectedPromptId(id)
     saveCache('prompt_templates', { templates: promptTemplatesRef.current, selectedId: id })
+  }, [])
+
+  // --- Analysis prompt factory (competitors tab) ----------------------------
+  const saveAnalysisPromptTemplate = useCallback((template: PromptTemplate) => {
+    setAnalysisPromptTemplates((prev) => {
+      const exists = prev.some((t) => t.id === template.id)
+      const updated = exists ? prev.map((t) => t.id === template.id ? template : t) : [...prev, template]
+      const selId = selectedAnalysisPromptIdRef.current ?? template.id
+      if (!selectedAnalysisPromptIdRef.current) setSelectedAnalysisPromptId(template.id)
+      saveCache('analysis_settings', { templates: updated, selectedId: selId, provider: selectedAnalysisProviderRef.current })
+      return updated
+    })
+  }, [])
+
+  const deleteAnalysisPromptTemplate = useCallback((id: string) => {
+    setAnalysisPromptTemplates((prev) => {
+      const updated = prev.filter((t) => t.id !== id)
+      const newSel = selectedAnalysisPromptIdRef.current === id ? (updated[0]?.id ?? null) : selectedAnalysisPromptIdRef.current
+      setSelectedAnalysisPromptId(newSel)
+      saveCache('analysis_settings', { templates: updated, selectedId: newSel, provider: selectedAnalysisProviderRef.current })
+      return updated
+    })
+  }, [])
+
+  const selectAnalysisPromptTemplate = useCallback((id: string) => {
+    setSelectedAnalysisPromptId(id)
+    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: id, provider: selectedAnalysisProviderRef.current })
+  }, [])
+
+  const setAnalysisProvider = useCallback((p: AIProvider) => {
+    setSelectedAnalysisProvider(p)
+    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: selectedAnalysisPromptIdRef.current, provider: p })
   }, [])
 
   // --- Transcribe -----------------------------------------------------------
@@ -629,6 +745,7 @@ export default function Dashboard() {
           competitorReels: filteredCompetitorReels,
           systemPrompt: activePrompt.content,
           provider: providerSnapshot,
+          dataSources: Array.from(ideaDataSourcesRef.current),
         }),
       })
       const data = await res.json()
@@ -913,6 +1030,35 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Analysis settings */}
+            <PromptFactory
+              templates={analysisPromptTemplates}
+              selectedId={selectedAnalysisPromptId}
+              onSelect={selectAnalysisPromptTemplate}
+              onSave={saveAnalysisPromptTemplate}
+              onDelete={deleteAnalysisPromptTemplate}
+            />
+            <div className="mb-4 flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-slate-500 font-medium flex-shrink-0">Analysis AI:</span>
+              <div className="flex items-center gap-1.5">
+                {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setAnalysisProvider(p)}
+                    className={clsx(
+                      'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                      selectedAnalysisProvider === p
+                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                    )}
+                  >
+                    {PROVIDER_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-slate-600 font-mono">{MODEL_NAMES[selectedAnalysisProvider]}</span>
+            </div>
+
             {/* Add competitor input */}
             <div className="flex gap-3 mb-6">
               <div className="relative flex-1 max-w-sm">
@@ -983,6 +1129,12 @@ export default function Dashboard() {
                     transcribeAllProgress={compBulkTranscribing[username] ?? null}
                     onAnalyze={(reel) => handleAnalyzeCompReel(username, reel)}
                     analyzingId={analyzingCompReelId}
+                    onAnalyzeAll={() => analyzeAllCompetitorReels(username)}
+                    onStopAnalyzeAll={() => {
+                      delete compBulkAnalyzingRef.current[username]
+                      setCompBulkAnalyzing((prev) => { const n = { ...prev }; delete n[username]; return n })
+                    }}
+                    analyzeAllProgress={compBulkAnalyzing[username] ?? null}
                   />
                 ))}
               </div>
@@ -1040,6 +1192,47 @@ export default function Dashboard() {
                 ))}
               </div>
               <span className="text-xs text-slate-600 font-mono">{MODEL_NAMES[selectedProvider]}</span>
+            </div>
+
+            {/* ── Data source selector ── */}
+            <div className="mb-5 flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-slate-500 font-medium flex-shrink-0">Include in context:</span>
+              <div className="flex items-center gap-1.5">
+                {(['analysis', 'transcript', 'caption'] as const).map((src) => (
+                  <button
+                    key={src}
+                    onClick={() => setIdeaDataSources((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(src)) next.delete(src)
+                      else next.add(src)
+                      return next
+                    })}
+                    className={clsx(
+                      'text-xs px-3 py-1.5 rounded-lg border transition-colors capitalize',
+                      ideaDataSources.has(src)
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                    )}
+                  >
+                    {src === 'analysis' ? 'Analysis' : src === 'transcript' ? 'Transcript' : 'Caption'}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setIdeaDataSources((prev) => {
+                    const all = new Set(['analysis', 'transcript', 'caption'])
+                    const isAllSelected = all.size === prev.size && Array.from(all).every((s) => prev.has(s))
+                    return isAllSelected ? new Set<string>() : all
+                  })}
+                  className={clsx(
+                    'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                    ideaDataSources.size === 3
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                      : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                  )}
+                >
+                  All
+                </button>
+              </div>
             </div>
 
             {/* ── Competitor filter ── */}

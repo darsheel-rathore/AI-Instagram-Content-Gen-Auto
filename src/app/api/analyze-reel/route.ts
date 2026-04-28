@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import type { ReelAnalysis } from '@/lib/types'
 
-const SYSTEM_PROMPT = `You are an expert Instagram content analyst specializing in spiritual, astrology, and healing content.
+const DEFAULT_SYSTEM_PROMPT = `You are an expert Instagram content analyst specializing in spiritual, astrology, and healing content.
 
 Analyze the given reel transcript and extract structured content elements.
 
@@ -18,29 +19,72 @@ Return ONLY a valid JSON object with exactly these fields:
 
 Return nothing else — just the JSON object.`
 
+type Provider = 'anthropic' | 'openai' | 'gemini'
+
+async function analyzeWithGemini(transcript: string, systemPrompt: string): Promise<string> {
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt })
+  const result = await model.generateContent(`Transcript:\n${transcript}`)
+  return result.response.text().trim()
+}
+
+async function analyzeWithAnthropic(transcript: string, systemPrompt: string): Promise<string> {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1000,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: `Transcript:\n${transcript}` }],
+  })
+  const textBlock = response.content.find((b) => b.type === 'text')
+  if (!textBlock || textBlock.type !== 'text') throw new Error('No text response from Claude')
+  return textBlock.text.trim()
+}
+
+async function analyzeWithOpenAI(transcript: string, systemPrompt: string): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Transcript:\n${transcript}` }],
+      max_tokens: 1000,
+      temperature: 0.3,
+    }),
+    signal: AbortSignal.timeout(60_000),
+  })
+  if (!res.ok) throw new Error(`OpenAI error: ${await res.text()}`)
+  const data = await res.json()
+  return (data.choices[0].message.content as string).trim()
+}
+
 export async function POST(req: NextRequest) {
-  const { transcript } = await req.json()
+  const { transcript, systemPrompt: customPrompt, provider: requestedProvider } = await req.json()
 
   if (!transcript?.trim()) {
     return NextResponse.json({ error: 'transcript required' }, { status: 400 })
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    return NextResponse.json({ error: 'GEMINI_API_KEY not set' }, { status: 500 })
+  const provider = (requestedProvider ?? 'gemini') as Provider
+  const systemPrompt = customPrompt?.trim() || DEFAULT_SYSTEM_PROMPT
+
+  const keyMap: Record<Provider, string | undefined> = {
+    anthropic: process.env.ANTHROPIC_API_KEY,
+    openai: process.env.OPENAI_API_KEY,
+    gemini: process.env.GEMINI_API_KEY,
+  }
+  if (!keyMap[provider]) {
+    return NextResponse.json({ error: `API key for ${provider} not set` }, { status: 500 })
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: SYSTEM_PROMPT,
-    })
-
-    const result = await model.generateContent(`Transcript:\n${transcript}`)
-    const text = result.response.text().trim()
+    let text: string
+    if (provider === 'anthropic') text = await analyzeWithAnthropic(transcript, systemPrompt)
+    else if (provider === 'openai') text = await analyzeWithOpenAI(transcript, systemPrompt)
+    else text = await analyzeWithGemini(transcript, systemPrompt)
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON in Gemini response')
+    if (!jsonMatch) throw new Error('No JSON in response')
 
     const analysis: ReelAnalysis = JSON.parse(jsonMatch[0])
     return NextResponse.json({ analysis })

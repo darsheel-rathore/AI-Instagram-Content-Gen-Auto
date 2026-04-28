@@ -67,11 +67,14 @@ interface Props {
   transcribeAllProgress: { current: number; total: number } | null
   onAnalyze: (reel: Reel) => void
   analyzingId: string | null
+  onAnalyzeAll: () => void
+  onStopAnalyzeAll: () => void
+  analyzeAllProgress: { current: number; total: number } | null
 }
 
 const SPEEDS = [1, 1.5, 2] as const
 
-function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing }: {
+function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing, analyzeAllRunning }: {
   reel: Reel
   rank: number
   onTranscribe: () => void
@@ -79,6 +82,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
   transcribeError?: string
   onAnalyze: () => void
   isAnalyzing: boolean
+  analyzeAllRunning: boolean
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [transcriptOpen, setTranscriptOpen] = useState(false)
@@ -416,7 +420,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                 </button>
               )}
               {/* Analyze button - when transcript exists but no analysis */}
-              {reel.transcript && !reel.reelAnalysis && !isAnalyzing && (
+              {reel.transcript && !reel.reelAnalysis && !isAnalyzing && !analyzeAllRunning && (
                 <button
                   onClick={onAnalyze}
                   className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
@@ -449,10 +453,11 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 export default function CompetitorSection({
   username, reels, isExpanded, onToggle, lastSynced, isLoading, error, onResync, onRemove,
   onTranscribe, transcribingId, transcribeErrors, onTranscribeAll, onStopTranscribeAll, transcribeAllProgress,
-  onAnalyze, analyzingId,
+  onAnalyze, analyzingId, onAnalyzeAll, onStopAnalyzeAll, analyzeAllProgress,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('views')
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showAnalyzeConfirm, setShowAnalyzeConfirm] = useState(false)
 
   const engRate = (r: Reel) => r.views > 0 ? (r.likes + r.comments) / r.views : 0
   const sorted = [...reels].sort((a, b) =>
@@ -464,11 +469,64 @@ export default function CompetitorSection({
     : 0
 
   const transcribable = reels.filter((r) => !r.transcript && (r.audioUrl || r.videoUrl))
+  const analyzable = reels.filter((r) => r.transcript && !r.reelAnalysis)
   const estimatedMinutes = Math.max(1, Math.ceil(transcribable.length * 30 / 60))
+  const estimatedAnalyzeSeconds = Math.max(1, Math.ceil(analyzable.length * 8))
 
   return (
     <>
-      {/* â"€â"€ Confirmation dialog â"€â"€ */}
+      {/* â"€â"€ Analyze all confirmation dialog â"€â"€ */}
+      {showAnalyzeConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setShowAnalyzeConfirm(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-sm">Analyze all transcribed reels?</h3>
+                <p className="text-slate-500 text-xs mt-0.5">@{username}</p>
+              </div>
+            </div>
+            <p className="text-slate-400 text-sm mb-2">
+              This will analyze{' '}
+              <span className="text-white font-semibold">
+                {analyzable.length} reel{analyzable.length !== 1 ? 's' : ''}
+              </span>{' '}
+              using your selected AI — one at a time, sequentially.
+            </p>
+            <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-5">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-amber-300 text-xs leading-relaxed">
+                Estimated ~{estimatedAnalyzeSeconds}s (~8s per reel).{' '}
+                <strong>Don&apos;t navigate away</strong> — analysis will stop if you leave this page.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowAnalyzeConfirm(false)}
+                className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowAnalyzeConfirm(false); onAnalyzeAll() }}
+                className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors"
+              >
+                Analyze {analyzable.length} reels
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* â"€â"€ Transcribe all confirmation dialog â"€â"€ */}
       {showConfirm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
@@ -596,17 +654,57 @@ export default function CompetitorSection({
                 ))}
               </div>
 
-              {transcribable.length > 0 && !transcribeAllProgress && (
-                <button
-                  onClick={() => setShowConfirm(true)}
-                  disabled={!!transcribingId}
-                  className="ml-auto flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/40 hover:border-violet-400/60 hover:bg-violet-500/10 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Mic className="w-3 h-3" />
-                  Transcribe All ({transcribable.length})
-                </button>
-              )}
+              <div className="ml-auto flex items-center gap-2">
+                {analyzable.length > 0 && !analyzeAllProgress && (
+                  <button
+                    onClick={() => setShowAnalyzeConfirm(true)}
+                    disabled={!!analyzingId || !!transcribeAllProgress}
+                    className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 border border-amber-500/40 hover:border-amber-400/60 hover:bg-amber-500/10 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Analyze All ({analyzable.length})
+                  </button>
+                )}
+                {transcribable.length > 0 && !transcribeAllProgress && (
+                  <button
+                    onClick={() => setShowConfirm(true)}
+                    disabled={!!transcribingId || !!analyzeAllProgress}
+                    className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/40 hover:border-violet-400/60 hover:bg-violet-500/10 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Mic className="w-3 h-3" />
+                    Transcribe All ({transcribable.length})
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Bulk analyze progress banner */}
+            {analyzeAllProgress && (
+              <div className="mx-5 mb-1 flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg p-3 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">
+                    Analyzing {analyzeAllProgress.current} of {analyzeAllProgress.total} reels...
+                  </span>
+                  <span className="text-slate-500 ml-2">Don&apos;t navigate away</span>
+                </div>
+                <div className="flex-shrink-0 w-24">
+                  <div className="w-full bg-slate-700 rounded-full h-1.5">
+                    <div
+                      className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${(analyzeAllProgress.current / analyzeAllProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={onStopAnalyzeAll}
+                  title="Stop analysis"
+                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-xs text-rose-400 hover:text-rose-300 border border-rose-500/30 hover:border-rose-400/50 hover:bg-rose-500/10 transition-colors"
+                >
+                  <X className="w-3 h-3" /> Stop
+                </button>
+              </div>
+            )}
 
             {/* Bulk transcription progress banner */}
             {transcribeAllProgress && (
@@ -648,6 +746,7 @@ export default function CompetitorSection({
                   transcribeError={transcribeErrors?.[reel.id]}
                   onAnalyze={() => onAnalyze(reel)}
                   isAnalyzing={analyzingId === reel.id}
+                  analyzeAllRunning={analyzeAllProgress !== null}
                 />
               ))}
               {reels.length === 0 && (
