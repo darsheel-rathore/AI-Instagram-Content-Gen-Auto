@@ -431,6 +431,16 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                   <FileText className="w-3 h-3" /> Transcribe
                 </button>
               )}
+              {/* Re-transcribe button - when transcript exists */}
+              {reel.transcript && (reel.audioUrl || reel.videoUrl) && !isTranscribing && (
+                <button
+                  onClick={onTranscribe}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-violet-400 transition-colors"
+                  title="Re-transcribe with fresh audio"
+                >
+                  <RefreshCw className="w-3 h-3" /> Re-transcribe
+                </button>
+              )}
               {/* Analyze button - when transcript exists but no analysis */}
               {reel.transcript && !reel.reelAnalysis && !isAnalyzing && !analyzeAllRunning && (
                 <button
@@ -438,6 +448,16 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                   className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
                 >
                   <Sparkles className="w-3 h-3" /> Analyze
+                </button>
+              )}
+              {/* Re-analyze button - when analysis already exists */}
+              {reel.reelAnalysis && !isAnalyzing && !analyzeAllRunning && (
+                <button
+                  onClick={onAnalyze}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-400 transition-colors"
+                  title="Re-analyze with current prompt"
+                >
+                  <RefreshCw className="w-3 h-3" /> Re-analyze
                 </button>
               )}
               {isAnalyzing && (
@@ -470,6 +490,7 @@ export default function CompetitorSection({
   const [sortBy, setSortBy] = useState<SortKey>('views')
   const [showConfirm, setShowConfirm] = useState(false)
   const [showAnalyzeConfirm, setShowAnalyzeConfirm] = useState(false)
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
 
   const engRate = (r: Reel) => r.views > 0 ? (r.likes + r.comments) / r.views : 0
   const sorted = [...reels].sort((a, b) =>
@@ -487,6 +508,46 @@ export default function CompetitorSection({
 
   return (
     <>
+      {/* â"€â"€ Remove confirmation dialog â"€â"€ */}
+      {showRemoveConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setShowRemoveConfirm(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 flex items-center justify-center flex-shrink-0">
+                <X className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-sm">Remove @{username}?</h3>
+                <p className="text-slate-500 text-xs mt-0.5">{reels.length} reels — this cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-slate-400 text-sm mb-5">
+              All cached data for this creator — including transcripts and analysis — will be removed. You can re-add them at any time.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowRemoveConfirm(false)}
+                className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowRemoveConfirm(false); onRemove() }}
+                className="flex-1 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* â"€â"€ Analyze all confirmation dialog â"€â"€ */}
       {showAnalyzeConfirm && (
         <div
@@ -625,7 +686,7 @@ export default function CompetitorSection({
               Re-sync
             </button>
             <button
-              onClick={onRemove}
+              onClick={() => setShowRemoveConfirm(true)}
               className="flex items-center gap-1 text-xs text-slate-600 hover:text-rose-400 transition-colors"
             >
               <X className="w-3 h-3" /> Remove
