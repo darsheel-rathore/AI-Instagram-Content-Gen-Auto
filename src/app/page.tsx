@@ -25,6 +25,7 @@ type GenerationRecord = {
   generatedAt: string
   ideas: string
   provider?: AIProvider
+  model?: string
   promptName?: string
   competitorUsernames?: string[]
 }
@@ -32,15 +33,41 @@ type SortBy = 'views' | 'likes' | 'comments'
 
 const MAX_SAVED_GENERATIONS = 15
 
-const MODEL_NAMES: Record<AIProvider, string> = {
+type ModelCost = 'expensive' | 'moderate' | 'cheap'
+
+const PROVIDER_MODELS: Record<AIProvider, { id: string; label: string; cost: ModelCost; description: string }[]> = {
+  anthropic: [
+    { id: 'claude-opus-4-7',          label: 'Opus 4.7',             cost: 'expensive', description: 'Most capable, slowest'     },
+    { id: 'claude-sonnet-4-6',        label: 'Sonnet 4.6',           cost: 'moderate',  description: 'Balanced speed & quality'  },
+    { id: 'claude-haiku-4-5-20251001',label: 'Haiku 4.5',            cost: 'cheap',     description: 'Fastest, cheapest'         },
+  ],
+  openai: [
+    { id: 'gpt-4o',                   label: 'GPT-4o',               cost: 'expensive', description: 'Most capable'              },
+    { id: 'gpt-4o-mini',              label: 'GPT-4o mini',          cost: 'cheap',     description: 'Fast & affordable'         },
+  ],
+  gemini: [
+    { id: 'gemini-2.5-pro',           label: 'Gemini 2.5 Pro',       cost: 'expensive', description: 'Most capable'              },
+    { id: 'gemini-2.5-flash',         label: 'Gemini 2.5 Flash',     cost: 'moderate',  description: 'Balanced'                  },
+    { id: 'gemini-2.0-flash-lite',    label: 'Gemini 2.0 Flash Lite',cost: 'cheap',     description: 'Cheapest'                  },
+  ],
+}
+
+const DEFAULT_MODEL: Record<AIProvider, string> = {
   anthropic: 'claude-sonnet-4-6',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.5-flash',
 }
+
 const PROVIDER_LABELS: Record<AIProvider, string> = {
   anthropic: 'Claude',
   openai: 'GPT-4o',
   gemini: 'Gemini',
+}
+
+const COST_DOT: Record<ModelCost, string> = {
+  expensive: 'bg-rose-500',
+  moderate:  'bg-amber-500',
+  cheap:     'bg-emerald-500',
 }
 
 const MY_USERNAME = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_username'
@@ -191,14 +218,16 @@ export default function Dashboard() {
   const [promptSizeEstimate, setPromptSizeEstimate] = useState(0)
   const [promptSizeCounts, setPromptSizeCounts] = useState({ myCount: 0, compReelCount: 0, creatorCount: 0 })
 
-  // AI provider selection + report deletion
+  // AI provider + model selection
   const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini')
+  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL['gemini'])
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   // Analysis settings (competitors tab)
   const [analysisPromptTemplates, setAnalysisPromptTemplates] = useState<PromptTemplate[]>([])
   const [selectedAnalysisPromptId, setSelectedAnalysisPromptId] = useState<string | null>(null)
   const [selectedAnalysisProvider, setSelectedAnalysisProvider] = useState<AIProvider>('gemini')
+  const [selectedAnalysisModel, setSelectedAnalysisModel] = useState<string>(DEFAULT_MODEL['gemini'])
 
   // Ideas data sources
   const [ideaDataSources, setIdeaDataSources] = useState<Set<string>>(new Set(['analysis']))
@@ -214,9 +243,11 @@ export default function Dashboard() {
   const selectedPromptIdRef = useRef(selectedPromptId)
   const selectedCompReelIdsRef = useRef<Record<string, Set<string>>>({})
   const selectedProviderRef = useRef<AIProvider>('gemini')
+  const selectedModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
   const analysisPromptTemplatesRef = useRef<PromptTemplate[]>([])
   const selectedAnalysisPromptIdRef = useRef<string | null>(null)
   const selectedAnalysisProviderRef = useRef<AIProvider>('gemini')
+  const selectedAnalysisModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
   const ideaDataSourcesRef = useRef<Set<string>>(new Set(['analysis']))
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
@@ -225,9 +256,11 @@ export default function Dashboard() {
   useEffect(() => { selectedPromptIdRef.current = selectedPromptId }, [selectedPromptId])
   useEffect(() => { selectedCompReelIdsRef.current = selectedCompReelIds }, [selectedCompReelIds])
   useEffect(() => { selectedProviderRef.current = selectedProvider }, [selectedProvider])
+  useEffect(() => { selectedModelRef.current = selectedModel }, [selectedModel])
   useEffect(() => { analysisPromptTemplatesRef.current = analysisPromptTemplates }, [analysisPromptTemplates])
   useEffect(() => { selectedAnalysisPromptIdRef.current = selectedAnalysisPromptId }, [selectedAnalysisPromptId])
   useEffect(() => { selectedAnalysisProviderRef.current = selectedAnalysisProvider }, [selectedAnalysisProvider])
+  useEffect(() => { selectedAnalysisModelRef.current = selectedAnalysisModel }, [selectedAnalysisModel])
   useEffect(() => { ideaDataSourcesRef.current = ideaDataSources }, [ideaDataSources])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
@@ -259,7 +292,7 @@ export default function Dashboard() {
       loadCache<GenerationRecord[]>('content_ideas'),
       loadCache<string[]>('competitor_expand_state'),
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null }>('prompt_templates'),
-      loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider }>('analysis_settings'),
+      loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider; model?: string }>('analysis_settings'),
       loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
     ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache]) => {
       if (myCache?.reels?.length) {
@@ -294,6 +327,7 @@ export default function Dashboard() {
       }
       if (analysisCache?.provider) {
         setSelectedAnalysisProvider(analysisCache.provider)
+        setSelectedAnalysisModel(analysisCache.model ?? DEFAULT_MODEL[analysisCache.provider])
       }
       if (ideaSelCache?.selectedComps) {
         setSelectedCompForIdeas(new Set(ideaSelCache.selectedComps))
@@ -400,10 +434,11 @@ export default function Dashboard() {
         try {
           const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
           const provider = selectedAnalysisProviderRef.current
+          const model = selectedAnalysisModelRef.current
           const aRes = await fetch('/api/analyze-reel', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript: data.transcript, ...(systemPrompt && { systemPrompt }), provider }),
+            body: JSON.stringify({ transcript: data.transcript, ...(systemPrompt && { systemPrompt }), provider, model }),
           })
           const aData = await aRes.json()
           if (aData.analysis) reelAnalysis = aData.analysis
@@ -463,10 +498,11 @@ export default function Dashboard() {
           try {
             const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
             const provider = selectedAnalysisProviderRef.current
+            const model = selectedAnalysisModelRef.current
             const aRes = await fetch('/api/analyze-reel', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transcript: data.transcript, ...(systemPrompt && { systemPrompt }), provider }),
+              body: JSON.stringify({ transcript: data.transcript, ...(systemPrompt && { systemPrompt }), provider, model }),
             })
             const aData = await aRes.json()
             if (aData.analysis) reelAnalysis = aData.analysis
@@ -519,12 +555,13 @@ export default function Dashboard() {
 
       const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
       const provider = selectedAnalysisProviderRef.current
+      const model = selectedAnalysisModelRef.current
 
       try {
         const res = await fetch('/api/analyze-reel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider }),
+          body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider, model }),
         })
         const data = await res.json()
         if (data.analysis) {
@@ -580,11 +617,12 @@ export default function Dashboard() {
     setAnalyzingCompReelId(reel.id)
     const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
     const provider = selectedAnalysisProviderRef.current
+    const model = selectedAnalysisModelRef.current
     try {
       const res = await fetch('/api/analyze-reel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider }),
+        body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider, model }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error as string)
@@ -649,7 +687,7 @@ export default function Dashboard() {
       const updated = exists ? prev.map((t) => t.id === template.id ? template : t) : [...prev, template]
       const selId = selectedAnalysisPromptIdRef.current ?? template.id
       if (!selectedAnalysisPromptIdRef.current) setSelectedAnalysisPromptId(template.id)
-      saveCache('analysis_settings', { templates: updated, selectedId: selId, provider: selectedAnalysisProviderRef.current })
+      saveCache('analysis_settings', { templates: updated, selectedId: selId, provider: selectedAnalysisProviderRef.current, model: selectedAnalysisModelRef.current })
       return updated
     })
   }, [])
@@ -659,19 +697,26 @@ export default function Dashboard() {
       const updated = prev.filter((t) => t.id !== id)
       const newSel = selectedAnalysisPromptIdRef.current === id ? (updated[0]?.id ?? null) : selectedAnalysisPromptIdRef.current
       setSelectedAnalysisPromptId(newSel)
-      saveCache('analysis_settings', { templates: updated, selectedId: newSel, provider: selectedAnalysisProviderRef.current })
+      saveCache('analysis_settings', { templates: updated, selectedId: newSel, provider: selectedAnalysisProviderRef.current, model: selectedAnalysisModelRef.current })
       return updated
     })
   }, [])
 
   const selectAnalysisPromptTemplate = useCallback((id: string) => {
     setSelectedAnalysisPromptId(id)
-    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: id, provider: selectedAnalysisProviderRef.current })
+    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: id, provider: selectedAnalysisProviderRef.current, model: selectedAnalysisModelRef.current })
   }, [])
 
   const setAnalysisProvider = useCallback((p: AIProvider) => {
+    const defaultModel = DEFAULT_MODEL[p]
     setSelectedAnalysisProvider(p)
-    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: selectedAnalysisPromptIdRef.current, provider: p })
+    setSelectedAnalysisModel(defaultModel)
+    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: selectedAnalysisPromptIdRef.current, provider: p, model: defaultModel })
+  }, [])
+
+  const setAnalysisModel = useCallback((m: string) => {
+    setSelectedAnalysisModel(m)
+    saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: selectedAnalysisPromptIdRef.current, provider: selectedAnalysisProviderRef.current, model: m })
   }, [])
 
   // --- Transcribe -----------------------------------------------------------
@@ -796,6 +841,7 @@ export default function Dashboard() {
       })()
       const includedCompetitors = Object.keys(filteredCompetitorReels)
       const providerSnapshot = selectedProviderRef.current
+      const modelSnapshot = selectedModelRef.current
 
       const res = await fetch('/api/content-ideas', {
         method: 'POST',
@@ -805,6 +851,7 @@ export default function Dashboard() {
           competitorReels: filteredCompetitorReels,
           systemPrompt: activePrompt.content,
           provider: providerSnapshot,
+          model: modelSnapshot,
           dataSources: Array.from(ideaDataSourcesRef.current),
         }),
       })
@@ -815,6 +862,7 @@ export default function Dashboard() {
         generatedAt: new Date().toISOString(),
         ideas: data.ideas as string,
         provider: providerSnapshot,
+        model: modelSnapshot,
         promptName: activePrompt.name,
         competitorUsernames: includedCompetitors,
       }
@@ -1098,25 +1146,51 @@ export default function Dashboard() {
               onSave={saveAnalysisPromptTemplate}
               onDelete={deleteAnalysisPromptTemplate}
             />
-            <div className="mb-4 flex items-center gap-3 flex-wrap">
-              <span className="text-xs text-slate-500 font-medium flex-shrink-0">Analysis AI:</span>
-              <div className="flex items-center gap-1.5">
-                {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setAnalysisProvider(p)}
-                    className={clsx(
-                      'text-xs px-3 py-1.5 rounded-lg border transition-colors',
-                      selectedAnalysisProvider === p
-                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
-                    )}
-                  >
-                    {PROVIDER_LABELS[p]}
-                  </button>
-                ))}
+            <div className="mb-4 space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Analysis AI:</span>
+                <div className="flex items-center gap-1.5">
+                  {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setAnalysisProvider(p)}
+                      className={clsx(
+                        'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                        selectedAnalysisProvider === p
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      {PROVIDER_LABELS[p]}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <span className="text-xs text-slate-600 font-mono">{MODEL_NAMES[selectedAnalysisProvider]}</span>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Model:</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {PROVIDER_MODELS[selectedAnalysisProvider].map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setAnalysisModel(m.id)}
+                      className={clsx(
+                        'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                        selectedAnalysisModel === m.id
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', COST_DOT[m.cost])} />
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-slate-600 hidden sm:flex items-center gap-2.5">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" />expensive</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />moderate</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />cheap</span>
+                </span>
+              </div>
             </div>
 
             {/* Add competitor input */}
@@ -1233,26 +1307,52 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* ── AI Provider selector ── */}
-            <div className="mb-5 flex items-center gap-3 flex-wrap">
-              <span className="text-xs text-slate-500 font-medium flex-shrink-0">AI Provider:</span>
-              <div className="flex items-center gap-1.5">
-                {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setSelectedProvider(p)}
-                    className={clsx(
-                      'text-xs px-3 py-1.5 rounded-lg border transition-colors',
-                      selectedProvider === p
-                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
-                    )}
-                  >
-                    {PROVIDER_LABELS[p]}
-                  </button>
-                ))}
+            {/* ── AI Provider + Model selector ── */}
+            <div className="mb-5 space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">AI Provider:</span>
+                <div className="flex items-center gap-1.5">
+                  {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => { setSelectedProvider(p); setSelectedModel(DEFAULT_MODEL[p]) }}
+                      className={clsx(
+                        'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                        selectedProvider === p
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      {PROVIDER_LABELS[p]}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <span className="text-xs text-slate-600 font-mono">{MODEL_NAMES[selectedProvider]}</span>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Model:</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {PROVIDER_MODELS[selectedProvider].map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setSelectedModel(m.id)}
+                      className={clsx(
+                        'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                        selectedModel === m.id
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', COST_DOT[m.cost])} />
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-slate-600 hidden sm:flex items-center gap-2.5">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" />expensive</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />moderate</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />cheap</span>
+                </span>
+              </div>
             </div>
 
             {/* ── Data source selector ── */}
@@ -1566,7 +1666,7 @@ export default function Dashboard() {
                 <div className="flex flex-wrap gap-1.5 mb-5 pb-4 border-b border-emerald-500/10">
                   {selectedIdea.provider && (
                     <span className="text-xs px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">
-                      {PROVIDER_LABELS[selectedIdea.provider]} · {MODEL_NAMES[selectedIdea.provider]}
+                      {PROVIDER_LABELS[selectedIdea.provider]} · {selectedIdea.model ?? DEFAULT_MODEL[selectedIdea.provider]}
                     </span>
                   )}
                   {selectedIdea.promptName && (

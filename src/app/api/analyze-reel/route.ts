@@ -25,17 +25,23 @@ Return nothing else — just the JSON object.`
 
 type Provider = 'anthropic' | 'openai' | 'gemini'
 
-async function analyzeWithGemini(transcript: string, systemPrompt: string): Promise<string> {
+const DEFAULT_MODELS: Record<Provider, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.5-flash',
+}
+
+async function analyzeWithGemini(transcript: string, systemPrompt: string, model: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt })
-  const result = await model.generateContent(`Transcript:\n${transcript}`)
+  const geminiModel = genAI.getGenerativeModel({ model, systemInstruction: systemPrompt })
+  const result = await geminiModel.generateContent(`Transcript:\n${transcript}`)
   return result.response.text().trim()
 }
 
-async function analyzeWithAnthropic(transcript: string, systemPrompt: string): Promise<string> {
+async function analyzeWithAnthropic(transcript: string, systemPrompt: string, model: string): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model,
     max_tokens: 1000,
     system: systemPrompt,
     messages: [{ role: 'user', content: `Transcript:\n${transcript}` }],
@@ -45,12 +51,12 @@ async function analyzeWithAnthropic(transcript: string, systemPrompt: string): P
   return textBlock.text.trim()
 }
 
-async function analyzeWithOpenAI(transcript: string, systemPrompt: string): Promise<string> {
+async function analyzeWithOpenAI(transcript: string, systemPrompt: string, model: string): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `Transcript:\n${transcript}` }],
       max_tokens: 1000,
       temperature: 0.3,
@@ -63,13 +69,14 @@ async function analyzeWithOpenAI(transcript: string, systemPrompt: string): Prom
 }
 
 export async function POST(req: NextRequest) {
-  const { transcript, systemPrompt: customPrompt, provider: requestedProvider } = await req.json()
+  const { transcript, systemPrompt: customPrompt, provider: requestedProvider, model: requestedModel } = await req.json()
 
   if (!transcript?.trim()) {
     return NextResponse.json({ error: 'transcript required' }, { status: 400 })
   }
 
   const provider = (requestedProvider ?? 'gemini') as Provider
+  const model = requestedModel ?? DEFAULT_MODELS[provider]
   // Custom prompt sets the persona/context; JSON format is always appended so output is always parseable
   const systemPrompt = (customPrompt?.trim() || DEFAULT_ANALYSIS_PERSONA) + JSON_FORMAT_REQUIREMENT
 
@@ -84,9 +91,9 @@ export async function POST(req: NextRequest) {
 
   try {
     let text: string
-    if (provider === 'anthropic') text = await analyzeWithAnthropic(transcript, systemPrompt)
-    else if (provider === 'openai') text = await analyzeWithOpenAI(transcript, systemPrompt)
-    else text = await analyzeWithGemini(transcript, systemPrompt)
+    if (provider === 'anthropic') text = await analyzeWithAnthropic(transcript, systemPrompt, model)
+    else if (provider === 'openai') text = await analyzeWithOpenAI(transcript, systemPrompt, model)
+    else text = await analyzeWithGemini(transcript, systemPrompt, model)
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('No JSON in response')

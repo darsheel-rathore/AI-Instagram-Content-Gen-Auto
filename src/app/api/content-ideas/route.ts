@@ -103,10 +103,16 @@ function buildCompetitorContext(competitorReels: Record<string, Reel[]>, dataSou
 // ─────────────────────────────────────────────
 // AI PROVIDER FUNCTIONS
 // ─────────────────────────────────────────────
-async function generateWithAnthropic(prompt: string, systemPrompt: string): Promise<string> {
+const DEFAULT_MODELS: Record<Provider, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.5-flash',
+}
+
+async function generateWithAnthropic(prompt: string, systemPrompt: string, model: string): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model,
     max_tokens: 2000,
     system: systemPrompt,
     messages: [{ role: 'user', content: prompt }],
@@ -116,7 +122,7 @@ async function generateWithAnthropic(prompt: string, systemPrompt: string): Prom
   return textBlock.text
 }
 
-async function generateWithOpenAI(prompt: string, systemPrompt: string): Promise<string> {
+async function generateWithOpenAI(prompt: string, systemPrompt: string, model: string): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -124,7 +130,7 @@ async function generateWithOpenAI(prompt: string, systemPrompt: string): Promise
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
@@ -139,13 +145,13 @@ async function generateWithOpenAI(prompt: string, systemPrompt: string): Promise
   return data.choices[0].message.content as string
 }
 
-async function generateWithGemini(prompt: string, systemPrompt: string): Promise<string> {
+async function generateWithGemini(prompt: string, systemPrompt: string, model: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+  const geminiModel = genAI.getGenerativeModel({
+    model,
     systemInstruction: systemPrompt,
   })
-  const result = await model.generateContent(prompt)
+  const result = await geminiModel.generateContent(prompt)
   return result.response.text()
 }
 
@@ -163,10 +169,12 @@ export async function POST(req: NextRequest) {
     competitorReels,
     systemPrompt,
     provider: requestedProvider,
+    model: requestedModel,
     dataSources: requestedSources,
-  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string; provider?: string; dataSources?: string[] } = await req.json()
+  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string; provider?: string; model?: string; dataSources?: string[] } = await req.json()
 
   const provider = ((requestedProvider ?? process.env.AI_PROVIDER ?? 'gemini') as Provider)
+  const model = requestedModel ?? DEFAULT_MODELS[provider]
   const dataSources = ((requestedSources?.length ? requestedSources : ['analysis']) as DataSource[])
 
   const keyMap: Record<Provider, string | undefined> = {
@@ -209,16 +217,16 @@ export async function POST(req: NextRequest) {
   const competitorContext = buildCompetitorContext(competitorReels, dataSources)
   const prompt = buildPrompt(myTopReels, myLowReels, competitorContext)
 
-  log(`━━━ Generate Ideas — provider: ${provider} | dataSources: ${dataSources.join(', ')} | my reels: ${(myReels ?? []).length} | competitors: ${Object.keys(competitorReels ?? {}).length}`)
+  log(`━━━ Generate Ideas — provider: ${provider} | model: ${model} | dataSources: ${dataSources.join(', ')} | my reels: ${(myReels ?? []).length} | competitors: ${Object.keys(competitorReels ?? {}).length}`)
   log(`─── SYSTEM PROMPT (${systemPrompt.length} chars) ───\n${systemPrompt}`)
   log(`─── USER PROMPT (${prompt.length} chars) ───\n${prompt}`)
   log(`─── TOTAL (${systemPrompt.length + prompt.length} chars) ───`)
 
   try {
     const generators: Record<Provider, () => Promise<string>> = {
-      anthropic: () => generateWithAnthropic(prompt, systemPrompt),
-      openai: () => generateWithOpenAI(prompt, systemPrompt),
-      gemini: () => generateWithGemini(prompt, systemPrompt),
+      anthropic: () => generateWithAnthropic(prompt, systemPrompt, model),
+      openai: () => generateWithOpenAI(prompt, systemPrompt, model),
+      gemini: () => generateWithGemini(prompt, systemPrompt, model),
     }
     const ideas = await generators[provider]()
     return NextResponse.json({ ideas })
