@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Reel, ReelAnalysis } from '@/lib/types'
+import type { Reel } from '@/lib/types'
 import { Eye, Heart, MessageCircle, Play, Loader2, FileText, ExternalLink, Copy, Check, X, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -27,14 +27,14 @@ const PERF_BADGE = {
 
 const PERF_LABEL = { top: 'Top Performer', mid: 'Average', low: 'Underperforming' }
 
-const ANALYSIS_FIELDS: { key: keyof ReelAnalysis; label: string }[] = [
-  { key: 'coreInsight', label: 'Core Insight' },
-  { key: 'hook', label: 'Hook' },
-  { key: 'whatToCover', label: 'What to Cover' },
-  { key: 'ending', label: 'Ending / CTA' },
-  { key: 'whyItWorks', label: 'Why it Works' },
-  { key: 'connectsToOffer', label: 'Offer' },
-]
+function formatKey(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (s) => s.toUpperCase())
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -172,15 +172,15 @@ export default function ReelCard({ reel, onTranscribe, transcribing, onAnalyze, 
         {/* Analysis breakdown */}
         {analysis && (
           <div className="px-3 pt-2 pb-2 flex-1 space-y-2">
-            {ANALYSIS_FIELDS.map(({ key, label }) => {
-              const value = analysis[key]
-              if (!value || (key === 'connectsToOffer' && value.toLowerCase() === 'none')) return null
+            {Object.entries(analysis).map(([key, value]) => {
+              const str = Array.isArray(value) ? value.join(' · ') : String(value ?? '')
+              if (!str || str.toLowerCase() === 'none') return null
               return (
                 <div key={key}>
                   <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider leading-none mb-0.5">
-                    {label}
+                    {formatKey(key)}
                   </p>
-                  <p className="text-[11px] text-slate-300 leading-relaxed line-clamp-2">{value}</p>
+                  <p className="text-[11px] text-slate-300 leading-relaxed line-clamp-2">{str}</p>
                 </div>
               )
             })}

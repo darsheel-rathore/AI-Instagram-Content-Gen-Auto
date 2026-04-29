@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import type { Reel, ReelAnalysis } from '@/lib/types'
+import type { Reel } from '@/lib/types'
 import {
   Eye, Heart, MessageCircle, ExternalLink, TrendingUp,
   ChevronDown, ChevronRight, RefreshCw, X, Clock, AlertCircle,
@@ -40,14 +40,14 @@ function fmtTime(s: number) {
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
-const ANALYSIS_FIELDS: { key: keyof ReelAnalysis; label: string }[] = [
-  { key: 'coreInsight', label: 'Core Insight' },
-  { key: 'hook', label: 'Hook' },
-  { key: 'whatToCover', label: 'What to Cover' },
-  { key: 'ending', label: 'Ending / CTA' },
-  { key: 'whyItWorks', label: 'Why it Works' },
-  { key: 'connectsToOffer', label: 'Offer' },
-]
+function formatKey(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (s) => s.toUpperCase())
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 interface Props {
   username: string
@@ -368,15 +368,15 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
           {/* Analysis breakdown */}
           {reel.reelAnalysis && (
             <div className="space-y-1.5">
-              {ANALYSIS_FIELDS.map(({ key, label }) => {
-                const value = reel.reelAnalysis![key]
-                if (!value || (key === 'connectsToOffer' && value.toLowerCase() === 'none')) return null
+              {Object.entries(reel.reelAnalysis).map(([key, value]) => {
+                const str = Array.isArray(value) ? value.join(' · ') : String(value ?? '')
+                if (!str || str.toLowerCase() === 'none') return null
                 return (
                   <div key={key}>
                     <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider leading-none mb-0.5">
-                      {label}
+                      {formatKey(key)}
                     </p>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">{value}</p>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">{str}</p>
                   </div>
                 )
               })}

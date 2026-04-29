@@ -8,7 +8,7 @@ const DEFAULT_ANALYSIS_PERSONA = `You are an expert Instagram content analyst sp
 
 Analyze the given reel transcript and extract structured content elements.`
 
-// Always appended — guarantees structured JSON output regardless of custom persona
+// Appended when using the default persona — enforces the standard 6-field schema
 const JSON_FORMAT_REQUIREMENT = `
 
 Return ONLY a valid JSON object with exactly these fields:
@@ -22,6 +22,11 @@ Return ONLY a valid JSON object with exactly these fields:
 }
 
 Return nothing else — just the JSON object.`
+
+// Appended when a custom prompt is used — lets the prompt define its own fields
+const GENERIC_JSON_INSTRUCTION = `
+
+Return ONLY a valid JSON object. Each key should be a camelCase version of the field you were asked to extract (e.g. "hookMechanism", "emotionalTrigger"). Return nothing else — just the JSON object.`
 
 type Provider = 'anthropic' | 'openai' | 'gemini'
 
@@ -77,8 +82,11 @@ export async function POST(req: NextRequest) {
 
   const provider = (requestedProvider ?? 'gemini') as Provider
   const model = requestedModel ?? DEFAULT_MODELS[provider]
-  // Custom prompt sets the persona/context; JSON format is always appended so output is always parseable
-  const systemPrompt = (customPrompt?.trim() || DEFAULT_ANALYSIS_PERSONA) + JSON_FORMAT_REQUIREMENT
+  // Custom prompt defines its own fields → only append a generic JSON wrapper.
+  // Default prompt → append the fixed 6-field schema so output is always parseable.
+  const systemPrompt = customPrompt?.trim()
+    ? customPrompt.trim() + GENERIC_JSON_INSTRUCTION
+    : DEFAULT_ANALYSIS_PERSONA + JSON_FORMAT_REQUIREMENT
 
   const keyMap: Record<Provider, string | undefined> = {
     anthropic: process.env.ANTHROPIC_API_KEY,

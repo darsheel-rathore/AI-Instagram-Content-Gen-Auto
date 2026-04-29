@@ -1,11 +1,4 @@
-export interface ReelAnalysis {
-  coreInsight: string
-  hook: string
-  whatToCover: string
-  ending: string
-  whyItWorks: string
-  connectsToOffer: string
-}
+export type ReelAnalysis = Record<string, string>
 
 export interface Reel {
   id: string
