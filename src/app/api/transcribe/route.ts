@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { writeFile, unlink, readFile, stat } from 'fs/promises'
+import { logUsage } from '@/lib/usage-tracker'
 
 const WHISPER_API = 'https://api.openai.com/v1/audio/transcriptions'
 
@@ -173,6 +174,16 @@ export async function POST(req: NextRequest) {
 
     const finalPartial = seemsPartial(result.duration)
     log(`✅ Done — final: ${result.duration.toFixed(1)}s transcribed, partial=${finalPartial}, text length=${result.text.length} chars`)
+
+    logUsage({
+      timestamp: new Date().toISOString(),
+      provider: 'openai',
+      model: 'whisper-1',
+      feature: 'transcription',
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: Math.round(result.duration),
+    })
 
     return NextResponse.json({
       transcript: result.text.trim(),

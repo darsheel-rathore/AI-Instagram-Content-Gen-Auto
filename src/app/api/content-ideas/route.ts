@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { Reel } from '@/lib/types'
+import { logUsage } from '@/lib/usage-tracker'
 
 type Provider = 'anthropic' | 'openai' | 'gemini'
 type DataSource = 'caption' | 'transcript' | 'analysis'
 
+interface ProviderResult {
+  text: string
+  inputTokens: number
+  outputTokens: number
+}
 
 // ─────────────────────────────────────────────
 // CONTENT SIGNAL HELPER
@@ -107,7 +113,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
-async function generateWithAnthropic(prompt: string, systemPrompt: string, model: string): Promise<string> {
+async function generateWithAnthropic(prompt: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
     model,
@@ -117,10 +123,14 @@ async function generateWithAnthropic(prompt: string, systemPrompt: string, model
   })
   const textBlock = response.content.find((b) => b.type === 'text')
   if (!textBlock || textBlock.type !== 'text') throw new Error('No text response from Claude')
-  return textBlock.text
+  return {
+    text: textBlock.text,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  }
 }
 
-async function generateWithOpenAI(prompt: string, systemPrompt: string, model: string): Promise<string> {
+async function generateWithOpenAI(prompt: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -140,17 +150,26 @@ async function generateWithOpenAI(prompt: string, systemPrompt: string, model: s
   })
   if (!res.ok) throw new Error(`OpenAI error: ${await res.text()}`)
   const data = await res.json()
-  return data.choices[0].message.content as string
+  return {
+    text: data.choices[0].message.content as string,
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+  }
 }
 
-async function generateWithGemini(prompt: string, systemPrompt: string, model: string): Promise<string> {
+async function generateWithGemini(prompt: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
   const geminiModel = genAI.getGenerativeModel({
     model,
     systemInstruction: systemPrompt,
   })
   const result = await geminiModel.generateContent(prompt)
-  return result.response.text()
+  const meta = result.response.usageMetadata
+  return {
+    text: result.response.text(),
+    inputTokens: meta?.promptTokenCount ?? 0,
+    outputTokens: meta?.candidatesTokenCount ?? 0,
+  }
 }
 
 
@@ -216,13 +235,23 @@ export async function POST(req: NextRequest) {
   log(`─── TOTAL (${systemPrompt.length + dataContext.length} chars) ───`)
 
   try {
-    const generators: Record<Provider, () => Promise<string>> = {
+    const generators: Record<Provider, () => Promise<ProviderResult>> = {
       anthropic: () => generateWithAnthropic(dataContext, systemPrompt, model),
       openai: () => generateWithOpenAI(dataContext, systemPrompt, model),
       gemini: () => generateWithGemini(dataContext, systemPrompt, model),
     }
-    const ideas = await generators[provider]()
-    return NextResponse.json({ ideas })
+    const result = await generators[provider]()
+
+    logUsage({
+      timestamp: new Date().toISOString(),
+      provider,
+      model,
+      feature: 'content-ideas',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+    })
+
+    return NextResponse.json({ ideas: result.text })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ error: msg }, { status: 500 })

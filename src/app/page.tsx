@@ -14,7 +14,7 @@ import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, FileText,
+  Settings, LogOut, FileText, BarChart2,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -1126,6 +1126,14 @@ export default function Dashboard() {
                   >
                     <Settings className="w-4 h-4 flex-shrink-0" />
                     <span>Settings</span>
+                  </a>
+                  <a
+                    href="/usage"
+                    onClick={() => setProfileOpen(false)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <BarChart2 className="w-4 h-4 flex-shrink-0" />
+                    <span>Token Usage</span>
                   </a>
                   <button
                     onClick={async () => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import type { ReelAnalysis } from '@/lib/types'
+import { logUsage } from '@/lib/usage-tracker'
 
 // Default persona used when no custom analysis prompt is configured
 const DEFAULT_ANALYSIS_PERSONA = `You are an expert Instagram content analyst specializing in spiritual, astrology, and healing content.
@@ -36,14 +37,25 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
-async function analyzeWithGemini(transcript: string, systemPrompt: string, model: string): Promise<string> {
+interface ProviderResult {
+  text: string
+  inputTokens: number
+  outputTokens: number
+}
+
+async function analyzeWithGemini(transcript: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
   const geminiModel = genAI.getGenerativeModel({ model, systemInstruction: systemPrompt })
   const result = await geminiModel.generateContent(`Transcript:\n${transcript}`)
-  return result.response.text().trim()
+  const meta = result.response.usageMetadata
+  return {
+    text: result.response.text().trim(),
+    inputTokens: meta?.promptTokenCount ?? 0,
+    outputTokens: meta?.candidatesTokenCount ?? 0,
+  }
 }
 
-async function analyzeWithAnthropic(transcript: string, systemPrompt: string, model: string): Promise<string> {
+async function analyzeWithAnthropic(transcript: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
     model,
@@ -53,10 +65,14 @@ async function analyzeWithAnthropic(transcript: string, systemPrompt: string, mo
   })
   const textBlock = response.content.find((b) => b.type === 'text')
   if (!textBlock || textBlock.type !== 'text') throw new Error('No text response from Claude')
-  return textBlock.text.trim()
+  return {
+    text: textBlock.text.trim(),
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  }
 }
 
-async function analyzeWithOpenAI(transcript: string, systemPrompt: string, model: string): Promise<string> {
+async function analyzeWithOpenAI(transcript: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -70,7 +86,11 @@ async function analyzeWithOpenAI(transcript: string, systemPrompt: string, model
   })
   if (!res.ok) throw new Error(`OpenAI error: ${await res.text()}`)
   const data = await res.json()
-  return (data.choices[0].message.content as string).trim()
+  return {
+    text: (data.choices[0].message.content as string).trim(),
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -82,8 +102,6 @@ export async function POST(req: NextRequest) {
 
   const provider = (requestedProvider ?? 'gemini') as Provider
   const model = requestedModel ?? DEFAULT_MODELS[provider]
-  // Custom prompt defines its own fields → only append a generic JSON wrapper.
-  // Default prompt → append the fixed 6-field schema so output is always parseable.
   const systemPrompt = customPrompt?.trim()
     ? customPrompt.trim() + GENERIC_JSON_INSTRUCTION
     : DEFAULT_ANALYSIS_PERSONA + JSON_FORMAT_REQUIREMENT
@@ -98,12 +116,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    let text: string
-    if (provider === 'anthropic') text = await analyzeWithAnthropic(transcript, systemPrompt, model)
-    else if (provider === 'openai') text = await analyzeWithOpenAI(transcript, systemPrompt, model)
-    else text = await analyzeWithGemini(transcript, systemPrompt, model)
+    let result: ProviderResult
+    if (provider === 'anthropic') result = await analyzeWithAnthropic(transcript, systemPrompt, model)
+    else if (provider === 'openai') result = await analyzeWithOpenAI(transcript, systemPrompt, model)
+    else result = await analyzeWithGemini(transcript, systemPrompt, model)
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    logUsage({
+      timestamp: new Date().toISOString(),
+      provider,
+      model,
+      feature: 'analysis',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+    })
+
+    const jsonMatch = result.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('No JSON in response')
 
     const analysis: ReelAnalysis = JSON.parse(jsonMatch[0])
