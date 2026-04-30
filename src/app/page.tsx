@@ -9,11 +9,12 @@ import ScrapeProgress from '@/components/ScrapeProgress'
 import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
 import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
+import PdfSection from '@/components/PdfSection'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut,
+  Settings, LogOut, FileText,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -232,6 +233,15 @@ export default function Dashboard() {
   // Ideas data sources
   const [ideaDataSources, setIdeaDataSources] = useState<Set<string>>(new Set(['analysis']))
 
+  // PDF export settings
+  const [pdfPromptTemplates, setPdfPromptTemplates] = useState<PromptTemplate[]>([])
+  const [selectedPdfPromptId, setSelectedPdfPromptId] = useState<string | null>(null)
+  const [pdfProvider, setPdfProvider] = useState<AIProvider>('gemini')
+  const [pdfModel, setPdfModel] = useState<string>(DEFAULT_MODEL['gemini'])
+  const [selectedPdfDesign, setSelectedPdfDesign] = useState<string>('executive')
+  const [generatingPdfFor, setGeneratingPdfFor] = useState<string | null>(null)
+  const [pdfError, setPdfError] = useState<string>('')
+
   // Per-creator reel selection for ideas
   const [selectedCompReelIds, setSelectedCompReelIds] = useState<Record<string, Set<string>>>({})
   const [expandedReelPickers, setExpandedReelPickers] = useState<Set<string>>(new Set())
@@ -259,6 +269,11 @@ export default function Dashboard() {
   const selectedAnalysisProviderRef = useRef<AIProvider>('gemini')
   const selectedAnalysisModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
   const ideaDataSourcesRef = useRef<Set<string>>(new Set(['analysis']))
+  const pdfPromptTemplatesRef = useRef<PromptTemplate[]>([])
+  const selectedPdfPromptIdRef = useRef<string | null>(null)
+  const pdfProviderRef = useRef<AIProvider>('gemini')
+  const pdfModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
+  const selectedPdfDesignRef = useRef<string>('executive')
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
@@ -272,6 +287,11 @@ export default function Dashboard() {
   useEffect(() => { selectedAnalysisProviderRef.current = selectedAnalysisProvider }, [selectedAnalysisProvider])
   useEffect(() => { selectedAnalysisModelRef.current = selectedAnalysisModel }, [selectedAnalysisModel])
   useEffect(() => { ideaDataSourcesRef.current = ideaDataSources }, [ideaDataSources])
+  useEffect(() => { pdfPromptTemplatesRef.current = pdfPromptTemplates }, [pdfPromptTemplates])
+  useEffect(() => { selectedPdfPromptIdRef.current = selectedPdfPromptId }, [selectedPdfPromptId])
+  useEffect(() => { pdfProviderRef.current = pdfProvider }, [pdfProvider])
+  useEffect(() => { pdfModelRef.current = pdfModel }, [pdfModel])
+  useEffect(() => { selectedPdfDesignRef.current = selectedPdfDesign }, [selectedPdfDesign])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
@@ -336,7 +356,8 @@ export default function Dashboard() {
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider; model?: string }>('analysis_settings'),
       loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
       loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number; displayName?: string }>('settings'),
-    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache]) => {
+      loadCache<{ templates?: PromptTemplate[]; selectedId?: string | null; provider?: AIProvider; model?: string; design?: string }>('pdf_settings'),
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache, pdfCache]) => {
       if (settingsCache?.instagramUsername) {
         setMyUsername(settingsCache.instagramUsername)
         myUsernameRef.current = settingsCache.instagramUsername
@@ -390,6 +411,15 @@ export default function Dashboard() {
         }
         setSelectedCompReelIds(hydrated)
       }
+      if (pdfCache?.templates?.length) {
+        setPdfPromptTemplates(pdfCache.templates)
+        setSelectedPdfPromptId(pdfCache.selectedId ?? pdfCache.templates[0].id)
+      }
+      if (pdfCache?.provider) {
+        setPdfProvider(pdfCache.provider)
+        setPdfModel(pdfCache.model ?? DEFAULT_MODEL[pdfCache.provider])
+      }
+      if (pdfCache?.design) setSelectedPdfDesign(pdfCache.design)
       setCacheLoading(false)
     })
   }, [])
@@ -769,6 +799,79 @@ export default function Dashboard() {
     setSelectedAnalysisModel(m)
     saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: selectedAnalysisPromptIdRef.current, provider: selectedAnalysisProviderRef.current, model: m })
   }, [])
+
+  // --- PDF prompt factory ---------------------------------------------------
+  const savePdfPromptTemplate = useCallback((template: PromptTemplate) => {
+    setPdfPromptTemplates((prev) => {
+      const exists = prev.some((t) => t.id === template.id)
+      const updated = exists ? prev.map((t) => t.id === template.id ? template : t) : [...prev, template]
+      const selId = selectedPdfPromptIdRef.current ?? template.id
+      if (!selectedPdfPromptIdRef.current) setSelectedPdfPromptId(template.id)
+      saveCache('pdf_settings', { templates: updated, selectedId: selId, provider: pdfProviderRef.current, model: pdfModelRef.current, design: selectedPdfDesignRef.current })
+      return updated
+    })
+  }, [])
+
+  const deletePdfPromptTemplate = useCallback((id: string) => {
+    setPdfPromptTemplates((prev) => {
+      const updated = prev.filter((t) => t.id !== id)
+      const newSel = selectedPdfPromptIdRef.current === id ? (updated[0]?.id ?? null) : selectedPdfPromptIdRef.current
+      setSelectedPdfPromptId(newSel)
+      saveCache('pdf_settings', { templates: updated, selectedId: newSel, provider: pdfProviderRef.current, model: pdfModelRef.current, design: selectedPdfDesignRef.current })
+      return updated
+    })
+  }, [])
+
+  const selectPdfPromptTemplate = useCallback((id: string) => {
+    setSelectedPdfPromptId(id)
+    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: id, provider: pdfProviderRef.current, model: pdfModelRef.current, design: selectedPdfDesignRef.current })
+  }, [])
+
+  const changePdfProvider = useCallback((p: AIProvider) => {
+    const m = DEFAULT_MODEL[p]
+    setPdfProvider(p)
+    setPdfModel(m)
+    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: p, model: m, design: selectedPdfDesignRef.current })
+  }, [])
+
+  const changePdfModel = useCallback((m: string) => {
+    setPdfModel(m)
+    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: pdfProviderRef.current, model: m, design: selectedPdfDesignRef.current })
+  }, [])
+
+  const changePdfDesign = useCallback((id: string) => {
+    setSelectedPdfDesign(id)
+    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: pdfProviderRef.current, model: pdfModelRef.current, design: id })
+  }, [])
+
+  // --- Generate PDF ---------------------------------------------------------
+  async function handleGeneratePdf(sectionContent: string, ideaTitle: string) {
+    if (generatingPdfFor) return
+    setGeneratingPdfFor(ideaTitle)
+    setPdfError('')
+    try {
+      const customPrompt = pdfPromptTemplatesRef.current.find((t) => t.id === selectedPdfPromptIdRef.current)?.content
+      const res = await fetch('/api/generate-pdf-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: sectionContent,
+          customPrompt: customPrompt ?? undefined,
+          provider: pdfProviderRef.current,
+          model: pdfModelRef.current,
+          ideaTitle,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error as string)
+      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
+      await generateAndDownloadPdf(data, selectedPdfDesignRef.current)
+    } catch (e: unknown) {
+      setPdfError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setGeneratingPdfFor(null)
+    }
+  }
 
   // --- Transcribe -----------------------------------------------------------
   const handleTranscribe = useCallback(async (reel: Reel) => {
@@ -1677,6 +1780,21 @@ export default function Dashboard() {
               onDelete={deletePromptTemplate}
             />
 
+            {/* -- PDF Export section -- */}
+            <PdfSection
+              selectedDesign={selectedPdfDesign}
+              onDesignChange={changePdfDesign}
+              provider={pdfProvider}
+              model={pdfModel}
+              onProviderChange={changePdfProvider}
+              onModelChange={changePdfModel}
+              templates={pdfPromptTemplates}
+              selectedPromptId={selectedPdfPromptId}
+              onPromptSelect={selectPdfPromptTemplate}
+              onPromptSave={savePdfPromptTemplate}
+              onPromptDelete={deletePdfPromptTemplate}
+            />
+
             {(myReels.length === 0 || competitorUsernames.length === 0) && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-4 mb-6 text-sm">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -1800,22 +1918,69 @@ export default function Dashboard() {
                     <span className="text-xs text-slate-600 italic">No metadata recorded for this generation</span>
                   )}
                 </div>
+                {/* PDF error */}
+                {pdfError && (
+                  <div className="flex items-start gap-2.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-2 mb-3 text-xs">
+                    <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                    <span>{pdfError}</span>
+                  </div>
+                )}
                 <div className="space-y-1 overflow-x-hidden">
-                  {selectedIdea.ideas.split('\n').map((line, i) => {
-                    if (!line.trim()) return <div key={i} className="h-2" />
-                    if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /)) {
-                      return <h3 key={i} className="text-base font-bold text-white mt-5 mb-2 pt-2 break-words">{line.replace(/\*\*/g, '').replace(/^#{1,3} /, '')}</h3>
-                    }
-                    if (line.startsWith('- ') || line.startsWith('• ')) {
-                      return (
-                        <div key={i} className="flex gap-2 text-slate-300 text-sm py-0.5">
-                          <span className="text-emerald-400 flex-shrink-0 mt-0.5">•</span>
-                          <span className="break-words min-w-0" dangerouslySetInnerHTML={{ __html: line.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
-                        </div>
-                      )
-                    }
-                    return <p key={i} className="text-slate-300 text-sm leading-relaxed break-words" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
-                  })}
+                  {(() => {
+                    const lines = selectedIdea.ideas.split('\n')
+                    return lines.map((line, i) => {
+                      if (!line.trim()) return <div key={i} className="h-2" />
+                      if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /)) {
+                        const cleanText = line.replace(/\*\*/g, '').replace(/^#{1,3} /, '').trim()
+                        const isReelIdea = /reel\s*idea\s*#?\d+/i.test(cleanText)
+
+                        if (isReelIdea) {
+                          const getSectionContent = () => {
+                            const nextIdx = lines.findIndex((l, j) => {
+                              if (j <= i) return false
+                              const ct = l.replace(/\*\*/g, '').replace(/^#{1,3} /, '').trim()
+                              return (l.match(/^\*\*.*\*\*$/) || l.match(/^#{1,3} /)) && /reel\s*idea\s*#?\d+/i.test(ct)
+                            })
+                            return lines.slice(i, nextIdx === -1 ? undefined : nextIdx).join('\n')
+                          }
+                          const isGenerating = generatingPdfFor === cleanText
+                          return (
+                            <div key={i} className="flex items-center justify-between gap-3 mt-5 mb-2 pt-2 group/idea">
+                              <h3 className="text-base font-bold text-white break-words min-w-0">{cleanText}</h3>
+                              <button
+                                onClick={() => handleGeneratePdf(getSectionContent(), cleanText)}
+                                disabled={generatingPdfFor !== null}
+                                title="Generate PDF for this idea"
+                                className={clsx(
+                                  'flex-shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
+                                  isGenerating
+                                    ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
+                                    : generatingPdfFor !== null
+                                    ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
+                                    : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
+                                )}
+                              >
+                                {isGenerating
+                                  ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
+                                  : <><FileText className="w-3 h-3" />PDF</>}
+                              </button>
+                            </div>
+                          )
+                        }
+
+                        return <h3 key={i} className="text-base font-bold text-white mt-5 mb-2 pt-2 break-words">{cleanText}</h3>
+                      }
+                      if (line.startsWith('- ') || line.startsWith('• ')) {
+                        return (
+                          <div key={i} className="flex gap-2 text-slate-300 text-sm py-0.5">
+                            <span className="text-emerald-400 flex-shrink-0 mt-0.5">•</span>
+                            <span className="break-words min-w-0" dangerouslySetInnerHTML={{ __html: line.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
+                          </div>
+                        )
+                      }
+                      return <p key={i} className="text-slate-300 text-sm leading-relaxed break-words" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
+                    })
+                  })()}
                 </div>
               </div>
             )}
