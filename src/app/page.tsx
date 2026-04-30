@@ -1356,7 +1356,7 @@ export default function Dashboard() {
         {/* == CONTENT IDEAS ==================================================== */}
         {tab === 'ideas' && (
           <div>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-wrap items-start sm:items-center justify-between gap-3 mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white">Content Ideas</h2>
                 <p className="text-slate-500 text-sm mt-0.5">AI strategy based on your performance + competitor data</p>
@@ -1364,7 +1364,7 @@ export default function Dashboard() {
               <button
                 onClick={handleStartGenerate}
                 disabled={ideasLoading}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-shrink-0 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {ideasLoading
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
@@ -1662,12 +1662,12 @@ export default function Dashboard() {
 
             {/* -- History selector -- */}
             {ideasHistory.length > 0 && !ideasLoading && (
-              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl border border-slate-700/60 bg-slate-800/40">
+              <div className="flex items-center gap-3 mb-4 p-3 rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
                 <History className="w-4 h-4 text-slate-500 flex-shrink-0" />
                 <select
                   value={selectedIdeaId ?? ''}
                   onChange={(e) => setSelectedIdeaId(e.target.value)}
-                  className="flex-1 bg-slate-900/60 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  className="flex-1 min-w-0 bg-slate-900/60 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
                   {ideasHistory.map((g, i) => (
                     <option key={g.id} value={g.id}>
@@ -1688,15 +1688,15 @@ export default function Dashboard() {
             {selectedIdea && !ideasLoading && (
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6">
                 {/* Header row */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
-                    <span className="text-sm font-semibold text-emerald-300">Content Strategy Report</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <span className="text-sm font-semibold text-emerald-300 truncate">Content Strategy Report</span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                     <span className="text-xs text-slate-500">{formatGenDate(selectedIdea.generatedAt)}</span>
                     {deleteConfirmId === selectedIdea.id ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs text-slate-400">Delete this report?</span>
                         <button
                           onClick={() => setDeleteConfirmId(null)}
@@ -1748,21 +1748,21 @@ export default function Dashboard() {
                     <span className="text-xs text-slate-600 italic">No metadata recorded for this generation</span>
                   )}
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 overflow-x-hidden">
                   {selectedIdea.ideas.split('\n').map((line, i) => {
                     if (!line.trim()) return <div key={i} className="h-2" />
                     if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /)) {
-                      return <h3 key={i} className="text-base font-bold text-white mt-5 mb-2 pt-2">{line.replace(/\*\*/g, '').replace(/^#{1,3} /, '')}</h3>
+                      return <h3 key={i} className="text-base font-bold text-white mt-5 mb-2 pt-2 break-words">{line.replace(/\*\*/g, '').replace(/^#{1,3} /, '')}</h3>
                     }
-                    if (line.startsWith('- ') || line.startsWith('-¢ ')) {
+                    if (line.startsWith('- ') || line.startsWith('• ')) {
                       return (
                         <div key={i} className="flex gap-2 text-slate-300 text-sm py-0.5">
-                          <span className="text-emerald-400 flex-shrink-0 mt-0.5">-¢</span>
-                          <span dangerouslySetInnerHTML={{ __html: line.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
+                          <span className="text-emerald-400 flex-shrink-0 mt-0.5">•</span>
+                          <span className="break-words min-w-0" dangerouslySetInnerHTML={{ __html: line.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
                         </div>
                       )
                     }
-                    return <p key={i} className="text-slate-300 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
+                    return <p key={i} className="text-slate-300 text-sm leading-relaxed break-words" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
                   })}
                 </div>
               </div>
