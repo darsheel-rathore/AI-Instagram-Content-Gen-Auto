@@ -14,7 +14,7 @@ import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, FileText, BarChart2,
+  Settings, LogOut, FileText, BarChart2, Star,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -30,6 +30,16 @@ type GenerationRecord = {
   model?: string
   promptName?: string
   competitorUsernames?: string[]
+}
+type StarredIdea = {
+  id: string
+  title: string
+  content: string
+  starredAt: string
+  generationId?: string
+  provider?: string
+  model?: string
+  promptName?: string
 }
 type SortBy = 'views' | 'likes' | 'comments'
 
@@ -245,7 +255,10 @@ export default function Dashboard() {
   const [pdfModel, setPdfModel] = useState<string>(DEFAULT_MODEL['gemini'])
   const [selectedPdfDesign, setSelectedPdfDesign] = useState<string>('executive')
   const [generatingPdfFor, setGeneratingPdfFor] = useState<string | null>(null)
-  const [pdfError, setPdfError] = useState<string>('')
+  const [pdfErrors, setPdfErrors] = useState<Record<string, string>>({})
+
+  // Starred ideas
+  const [starredIdeas, setStarredIdeas] = useState<StarredIdea[]>([])
 
   // Per-creator reel selection for ideas
   const [selectedCompReelIds, setSelectedCompReelIds] = useState<Record<string, Set<string>>>({})
@@ -282,6 +295,8 @@ export default function Dashboard() {
   const includeMyTopReelsRef = useRef(true)
   const includeMyLowReelsRef = useRef(true)
   const includeCompetitorDataRef = useRef(true)
+  const starredIdeasRef = useRef<StarredIdea[]>([])
+  useEffect(() => { starredIdeasRef.current = starredIdeas }, [starredIdeas])
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
@@ -368,7 +383,8 @@ export default function Dashboard() {
       loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
       loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number; displayName?: string }>('settings'),
       loadCache<{ templates?: PromptTemplate[]; selectedId?: string | null; provider?: AIProvider; model?: string; design?: string }>('pdf_settings'),
-    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache, pdfCache]) => {
+      loadCache<StarredIdea[]>('starred_ideas'),
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache, pdfCache, starredCache]) => {
       if (settingsCache?.instagramUsername) {
         setMyUsername(settingsCache.instagramUsername)
         myUsernameRef.current = settingsCache.instagramUsername
@@ -431,6 +447,7 @@ export default function Dashboard() {
         setPdfModel(pdfCache.model ?? DEFAULT_MODEL[pdfCache.provider])
       }
       if (pdfCache?.design) setSelectedPdfDesign(pdfCache.design)
+      if (starredCache?.length) setStarredIdeas(starredCache)
       setCacheLoading(false)
     })
   }, [])
@@ -859,7 +876,7 @@ export default function Dashboard() {
   async function handleGeneratePdf(sectionContent: string, ideaTitle: string) {
     if (generatingPdfFor) return
     setGeneratingPdfFor(ideaTitle)
-    setPdfError('')
+    setPdfErrors((prev) => { const n = { ...prev }; delete n[ideaTitle]; return n })
     try {
       const customPrompt = pdfPromptTemplatesRef.current.find((t) => t.id === selectedPdfPromptIdRef.current)?.content
       const res = await fetch('/api/generate-pdf-content', {
@@ -878,10 +895,38 @@ export default function Dashboard() {
       const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
       await generateAndDownloadPdf(data, selectedPdfDesignRef.current)
     } catch (e: unknown) {
-      setPdfError(e instanceof Error ? e.message : String(e))
+      setPdfErrors((prev) => ({ ...prev, [ideaTitle]: e instanceof Error ? e.message : String(e) }))
     } finally {
       setGeneratingPdfFor(null)
     }
+  }
+
+  // --- Toggle star ----------------------------------------------------------
+  function handleToggleStar(ideaTitle: string, sectionContent: string) {
+    const selectedIdea = ideasHistory.find((r) => r.id === selectedIdeaId)
+    setStarredIdeas((prev) => {
+      const alreadyStarred = prev.some((s) => s.title === ideaTitle && s.generationId === selectedIdeaId)
+      let updated: StarredIdea[]
+      if (alreadyStarred) {
+        updated = prev.filter((s) => !(s.title === ideaTitle && s.generationId === selectedIdeaId))
+      } else {
+        updated = [
+          ...prev,
+          {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            title: ideaTitle,
+            content: sectionContent,
+            starredAt: new Date().toISOString(),
+            generationId: selectedIdeaId ?? undefined,
+            provider: selectedIdea?.provider,
+            model: selectedIdea?.model,
+            promptName: selectedIdea?.promptName,
+          },
+        ]
+      }
+      saveCache('starred_ideas', updated)
+      return updated
+    })
   }
 
   // --- Transcribe -----------------------------------------------------------
@@ -1119,6 +1164,19 @@ export default function Dashboard() {
                 </div>
                 {/* Actions */}
                 <div className="p-1.5 flex flex-col gap-0.5">
+                  <a
+                    href="/starred"
+                    onClick={() => setProfileOpen(false)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                  >
+                    <Star className="w-4 h-4 flex-shrink-0" />
+                    <span>Starred Ideas</span>
+                    {starredIdeas.length > 0 && (
+                      <span className="ml-auto text-xs bg-amber-500/20 text-amber-400 rounded-full px-1.5 py-0.5 leading-none">
+                        {starredIdeas.length}
+                      </span>
+                    )}
+                  </a>
                   <a
                     href="/settings"
                     onClick={() => setProfileOpen(false)}
@@ -1971,13 +2029,6 @@ export default function Dashboard() {
                     <span className="text-xs text-slate-600 italic">No metadata recorded for this generation</span>
                   )}
                 </div>
-                {/* PDF error */}
-                {pdfError && (
-                  <div className="flex items-start gap-2.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-2 mb-3 text-xs">
-                    <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                    <span>{pdfError}</span>
-                  </div>
-                )}
                 <div className="space-y-1 overflow-x-hidden">
                   {(() => {
                     const lines = selectedIdea.ideas.split('\n')
@@ -1997,26 +2048,54 @@ export default function Dashboard() {
                             return lines.slice(i, nextIdx === -1 ? undefined : nextIdx).join('\n')
                           }
                           const isGenerating = generatingPdfFor === cleanText
+                          const isStarred = starredIdeas.some(
+                            (s) => s.title === cleanText && s.generationId === selectedIdeaId
+                          )
+                          const ideaError = pdfErrors[cleanText]
                           return (
-                            <div key={i} className="flex items-center justify-between gap-3 mt-5 mb-2 pt-2 group/idea">
-                              <h3 className="text-base font-bold text-white break-words min-w-0">{cleanText}</h3>
-                              <button
-                                onClick={() => handleGeneratePdf(getSectionContent(), cleanText)}
-                                disabled={generatingPdfFor !== null}
-                                title="Generate PDF for this idea"
-                                className={clsx(
-                                  'flex-shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
-                                  isGenerating
-                                    ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
-                                    : generatingPdfFor !== null
-                                    ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
-                                    : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
-                                )}
-                              >
-                                {isGenerating
-                                  ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
-                                  : <><FileText className="w-3 h-3" />PDF</>}
-                              </button>
+                            <div key={i}>
+                              <div className="flex items-center justify-between gap-3 mt-5 mb-1 pt-2 group/idea">
+                                <h3 className="text-base font-bold text-white break-words min-w-0">{cleanText}</h3>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  {/* Star button */}
+                                  <button
+                                    onClick={() => handleToggleStar(cleanText, getSectionContent())}
+                                    title={isStarred ? 'Remove from starred' : 'Star this idea'}
+                                    className={clsx(
+                                      'flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-all',
+                                      isStarred
+                                        ? 'border-amber-500/40 bg-amber-500/15 text-amber-400'
+                                        : 'border-slate-700/60 text-slate-500 hover:border-amber-500/40 hover:text-amber-400 hover:bg-amber-500/10',
+                                    )}
+                                  >
+                                    <Star className="w-3 h-3" fill={isStarred ? 'currentColor' : 'none'} />
+                                  </button>
+                                  {/* PDF button */}
+                                  <button
+                                    onClick={() => handleGeneratePdf(getSectionContent(), cleanText)}
+                                    disabled={generatingPdfFor !== null}
+                                    title="Generate PDF for this idea"
+                                    className={clsx(
+                                      'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
+                                      isGenerating
+                                        ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
+                                        : generatingPdfFor !== null
+                                        ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
+                                        : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
+                                    )}
+                                  >
+                                    {isGenerating
+                                      ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
+                                      : <><FileText className="w-3 h-3" />PDF</>}
+                                  </button>
+                                </div>
+                              </div>
+                              {ideaError && (
+                                <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-2 mb-2 text-xs">
+                                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                  <span>{ideaError}</span>
+                                </div>
+                              )}
                             </div>
                           )
                         }
