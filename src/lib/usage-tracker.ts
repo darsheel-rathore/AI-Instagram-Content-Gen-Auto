@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-export type Feature = 'transcription' | 'analysis' | 'content-ideas' | 'pdf-generation' | 'scraping' | 'ppt-generation' | 'masterclass-strategy'
+export type Feature = 'transcription' | 'analysis' | 'content-ideas' | 'pdf-generation' | 'scraping' | 'ppt-generation' | 'masterclass-strategy' | 'story-strategy'
 export type UsageProvider = 'anthropic' | 'openai' | 'gemini' | 'apify'
 
 export interface UsageEntry {

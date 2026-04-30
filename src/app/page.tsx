@@ -11,15 +11,16 @@ import ComparisonView from '@/components/ComparisonView'
 import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
 import PdfSection from '@/components/PdfSection'
 import MasterclassTab from '@/components/MasterclassTab'
+import StoryTab from '@/components/StoryTab'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, FileText, BarChart2, Star, GraduationCap,
+  Settings, LogOut, FileText, BarChart2, Star, GraduationCap, Layers,
 } from 'lucide-react'
 import clsx from 'clsx'
 
-type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass'
+type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass' | 'story'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
 type AIProvider = 'anthropic' | 'openai' | 'gemini'
@@ -1105,6 +1106,7 @@ export default function Dashboard() {
     { id: 'compare', label: 'Compare', icon: <GitCompare className="w-4 h-4" /> },
     { id: 'ideas', label: 'Content Ideas', icon: <Lightbulb className="w-4 h-4" /> },
     { id: 'masterclass', label: 'Masterclass', icon: <GraduationCap className="w-4 h-4" /> },
+    { id: 'story', label: 'Story', icon: <Layers className="w-4 h-4" /> },
   ]
 
   return (
@@ -2137,6 +2139,7 @@ export default function Dashboard() {
 
         {/* == MASTERCLASS ======================================================= */}
         {tab === 'masterclass' && <MasterclassTab />}
+        {tab === 'story' && <StoryTab />}
 
       </div>
 
