@@ -10,6 +10,7 @@ import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
 import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
 import PdfSection from '@/components/PdfSection'
+import MasterclassTab from '@/components/MasterclassTab'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 
-type Tab = 'mine' | 'competitors' | 'compare' | 'ideas'
+type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
 type AIProvider = 'anthropic' | 'openai' | 'gemini'
@@ -1103,10 +1104,8 @@ export default function Dashboard() {
     { id: 'competitors', label: 'Competitors', icon: <Users2 className="w-4 h-4" /> },
     { id: 'compare', label: 'Compare', icon: <GitCompare className="w-4 h-4" /> },
     { id: 'ideas', label: 'Content Ideas', icon: <Lightbulb className="w-4 h-4" /> },
+    { id: 'masterclass', label: 'Masterclass', icon: <GraduationCap className="w-4 h-4" /> },
   ]
-
-  // Masterclass link rendered separately (external page)
-  const masterclassNavItem = { label: 'Masterclass', href: '/masterclass', icon: <GraduationCap className="w-4 h-4" /> }
 
   return (
     <main className="min-h-screen bg-[#0a0f1e]">
@@ -1129,13 +1128,6 @@ export default function Dashboard() {
                 <span className="hidden sm:inline">{t.label}</span>
               </button>
             ))}
-            <a
-              href={masterclassNavItem.href}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-violet-300 hover:bg-violet-500/10 transition-all"
-            >
-              {masterclassNavItem.icon}
-              <span className="hidden sm:inline">{masterclassNavItem.label}</span>
-            </a>
           </nav>
 
           {/* Right: Profile avatar + dropdown */}
@@ -2142,6 +2134,10 @@ export default function Dashboard() {
 
           </div>
         )}
+
+        {/* == MASTERCLASS ======================================================= */}
+        {tab === 'masterclass' && <MasterclassTab />}
+
       </div>
 
       {/* -- No-prompt dialog -- */}
