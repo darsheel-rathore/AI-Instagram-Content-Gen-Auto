@@ -310,6 +310,71 @@ function BalanceCard({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+function SkeletonBlock({ className }: { className?: string }) {
+  return <div className={clsx('animate-pulse rounded-lg bg-slate-800/60', className)} />
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-7">
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <SkeletonBlock className="w-7 h-7 rounded-lg" />
+              <SkeletonBlock className="w-20 h-3" />
+            </div>
+            <SkeletonBlock className="w-24 h-7" />
+            <SkeletonBlock className="w-32 h-3" />
+          </div>
+        ))}
+      </div>
+      {/* Balances */}
+      <div>
+        <SkeletonBlock className="w-36 h-3 mb-3" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <SkeletonBlock className="w-2.5 h-2.5 rounded-full" />
+                  <SkeletonBlock className="w-24 h-3" />
+                </div>
+                <SkeletonBlock className="w-16 h-3" />
+              </div>
+              <SkeletonBlock className="w-full h-3" />
+              <SkeletonBlock className="w-full h-3" />
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Chart */}
+      <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
+        <SkeletonBlock className="w-24 h-3 mb-4" />
+        <SkeletonBlock className="w-full h-32" />
+      </div>
+      {/* Breakdown */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5 space-y-4">
+            <SkeletonBlock className="w-28 h-3" />
+            {[0, 1, 2].map((j) => (
+              <div key={j} className="space-y-1.5">
+                <div className="flex justify-between">
+                  <SkeletonBlock className="w-28 h-3" />
+                  <SkeletonBlock className="w-14 h-3" />
+                </div>
+                <SkeletonBlock className="w-full h-2" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function UsagePage() {
   const [period, setPeriod]   = useState<Period>('7d')
   const [data, setData]       = useState<UsageData | null>(null)
@@ -402,8 +467,11 @@ export default function UsagePage() {
           ))}
         </div>
 
+        {/* ── Initial load skeleton ── */}
+        {data === null && <LoadingSkeleton />}
+
         {/* ── Empty state ── */}
-        {isEmpty && (
+        {data !== null && isEmpty && (
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-10 text-center">
             <Cpu className="w-10 h-10 text-slate-800 mx-auto mb-3" />
             <p className="text-slate-400 font-medium mb-1">No usage tracked yet</p>
@@ -414,7 +482,7 @@ export default function UsagePage() {
         )}
 
         {/* ── Summary stats ── */}
-        {!isEmpty && (
+        {data !== null && !isEmpty && (
           <div className="grid grid-cols-3 gap-4">
             {[
               {
@@ -460,51 +528,45 @@ export default function UsagePage() {
         )}
 
         {/* ── Provider balances ── */}
-        <div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-            Provider Balances
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {ALL_PROVIDERS.map((p) => (
-              <BalanceCard
-                key={p}
-                provider={p}
-                saved={data?.balances?.[p]}
-                spent={data?.byProvider?.[p]?.cost ?? 0}
-                onSave={handleSaveBalance}
-              />
-            ))}
+        {data !== null && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+              Provider Balances
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {ALL_PROVIDERS.map((p) => (
+                <BalanceCard
+                  key={p}
+                  provider={p}
+                  saved={data.balances?.[p]}
+                  spent={data.byProvider?.[p]?.cost ?? 0}
+                  onSave={handleSaveBalance}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-slate-700 mt-2">
+              Enter your credit balance per provider to track remaining budget. Spend is estimated from logged usage.
+            </p>
           </div>
-          <p className="text-xs text-slate-700 mt-2">
-            Enter your credit balance per provider to track remaining budget. Spend is estimated from logged usage.
-          </p>
-        </div>
+        )}
 
         {/* ── Daily spend chart ── */}
-        {!isEmpty && (
+        {data !== null && !isEmpty && (
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Daily Spend
               </p>
-              {data && (
-                <span className="text-xs text-slate-600">
-                  {Object.keys(data.byDay).length} day{Object.keys(data.byDay).length !== 1 ? 's' : ''}
-                </span>
-              )}
+              <span className="text-xs text-slate-600">
+                {Object.keys(data.byDay).length} day{Object.keys(data.byDay).length !== 1 ? 's' : ''}
+              </span>
             </div>
-            {data ? (
-              <DailyBarChart byDay={data.byDay} />
-            ) : (
-              <div className="h-36 flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
-              </div>
-            )}
+            <DailyBarChart byDay={data.byDay} />
           </div>
         )}
 
         {/* ── Feature + Provider breakdown ── */}
-        {!isEmpty && (
+        {data !== null && !isEmpty && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
             {/* Feature breakdown */}
@@ -556,7 +618,7 @@ export default function UsagePage() {
         )}
 
         {/* ── Token breakdown ── */}
-        {!isEmpty && totalTokens > 0 && (
+        {data !== null && !isEmpty && totalTokens > 0 && (
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
               Token Breakdown
