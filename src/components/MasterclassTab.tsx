@@ -625,21 +625,35 @@ export default function MasterclassTab() {
                 </button>
                 {expandedSlides && (
                   <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                    {generatedSlides.map((slide, i) => (
-                      <div key={i} className="flex items-start gap-2.5 rounded-lg bg-slate-800/40 px-3 py-2">
-                        <span className="text-xs text-slate-600 w-5 flex-shrink-0 mt-0.5">{i + 1}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-white truncate">{slide.title}</p>
-                          {slide.subtitle && <p className="text-xs text-slate-500 truncate">{slide.subtitle}</p>}
-                          {slide.points?.length ? <p className="text-xs text-slate-600 mt-0.5">{slide.points.length} bullet points</p> : null}
+                    {generatedSlides.map((slide, i) => {
+                      const label = slide.heading ?? slide.title ?? slide.sectionTitle ?? slide.text?.slice(0, 40) ?? ''
+                      const bullets = slide.bullets ?? slide.points ?? []
+                      const BADGE: Record<string, string> = {
+                        title: 'bg-violet-500/20 text-violet-400',
+                        agenda: 'bg-blue-500/20 text-blue-400',
+                        content: 'bg-slate-700/60 text-slate-400',
+                        quote: 'bg-amber-500/20 text-amber-400',
+                        exercise: 'bg-emerald-500/20 text-emerald-400',
+                        divider: 'bg-sky-500/20 text-sky-400',
+                        cta: 'bg-rose-500/20 text-rose-400',
+                        section: 'bg-blue-500/20 text-blue-400',
+                        closing: 'bg-amber-500/20 text-amber-400',
+                      }
+                      return (
+                        <div key={i} className="flex items-start gap-2.5 rounded-lg bg-slate-800/40 px-3 py-2">
+                          <span className="text-xs text-slate-600 w-5 flex-shrink-0 mt-0.5">{i + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-white truncate">{label}</p>
+                            {slide.subtitle && <p className="text-xs text-slate-500 truncate">{slide.subtitle}</p>}
+                            {bullets.length > 0 && <p className="text-xs text-slate-600 mt-0.5">{bullets.length} bullets</p>}
+                            {slide.insight && <p className="text-xs text-amber-600/70 mt-0.5 truncate">↳ {slide.insight}</p>}
+                          </div>
+                          <span className={clsx('text-xs rounded-md px-1.5 py-0.5 flex-shrink-0', BADGE[slide.type] ?? 'bg-slate-700/60 text-slate-500')}>
+                            {slide.type}
+                          </span>
                         </div>
-                        <span className={clsx('text-xs rounded-md px-1.5 py-0.5 flex-shrink-0',
-                          slide.type === 'title' ? 'bg-violet-500/20 text-violet-400' :
-                          slide.type === 'section' ? 'bg-blue-500/20 text-blue-400' :
-                          slide.type === 'closing' ? 'bg-amber-500/20 text-amber-400' :
-                          'bg-slate-700/60 text-slate-500')}>{slide.type}</span>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

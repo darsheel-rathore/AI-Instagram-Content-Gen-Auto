@@ -17,29 +17,29 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
-const SYSTEM_PROMPT = `You are an expert presentation designer creating PowerPoint slides for a masterclass.
+const SYSTEM_PROMPT = `You are an expert presentation designer creating a premium masterclass slide deck.
 
-Given details about the masterclass, generate a complete slide deck as a JSON array. Each slide has this structure:
+Return a JSON object with a "slides" array. Each slide uses ONE of these exact type structures — include only the fields listed for that type:
 
-{
-  "type": "title" | "agenda" | "content" | "section" | "closing",
-  "title": "Slide heading (short, impactful)",
-  "subtitle": "Optional subtitle (only for title/closing slides)",
-  "points": ["Bullet point 1", "Bullet point 2", ...],
-  "notes": "Speaker notes for this slide"
-}
+{ "type": "title",    "heading": "", "subtitle": "", "tagline": "" }
+{ "type": "agenda",   "items": ["Section 1", "Section 2", ...] }
+{ "type": "content",  "heading": "", "bullets": ["point 1", ...], "insight": "" }
+{ "type": "quote",    "text": "", "attribution": "" }
+{ "type": "exercise", "heading": "", "instructions": "", "reflection": "" }
+{ "type": "divider",  "sectionTitle": "" }
+{ "type": "cta",      "heading": "", "offer": "", "price": "", "handle": "" }
 
-Guidelines:
-- title slide: 1 slide with main title + subtitle
-- agenda slide: 1 slide listing main sections (no more than 6 points)
-- section slides: introduce each major section
-- content slides: 3-5 bullet points per slide, crisp and actionable
-- closing slide: thank you + call to action
-- Total: 12-20 slides depending on complexity
-- Keep bullet points under 10 words each
-- Speaker notes should be full sentences (what the presenter actually says)
-
-Return ONLY a valid JSON array. No explanation, no markdown fences.`
+RULES:
+- Start with 1 title slide, then 1 agenda slide
+- Use divider slides to open each major section (3–5 sections total)
+- Content slides: 3–5 bullets each, under 12 words per bullet
+- Include 1–2 quote slides from thought leaders or original insights
+- Include 1–2 exercise slides with a practical activity + reflection prompt
+- End with 1 cta slide. Use the price if provided. Set handle to the creator's Instagram handle if mentioned, else leave empty.
+- insight field: one sharp sentence — the single most important takeaway from that slide
+- tagline: a short evocative phrase (optional, for the title slide cover)
+- Total slides: 14–22
+- Return ONLY valid JSON: { "slides": [...] } — no explanation, no markdown fences`
 
 function stripJsonFences(raw: string): string {
   return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
@@ -136,7 +136,9 @@ export async function POST(req: NextRequest) {
 
     logUsage({ timestamp: new Date().toISOString(), provider, model, feature: 'ppt-generation', inputTokens: result.inputTokens, outputTokens: result.outputTokens })
 
-    const slides = JSON.parse(stripJsonFences(result.text))
+    const parsed = JSON.parse(stripJsonFences(result.text))
+    // Accept both { slides: [...] } and a bare array (fallback)
+    const slides = Array.isArray(parsed) ? parsed : (parsed.slides ?? [])
     return NextResponse.json({ slides })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
