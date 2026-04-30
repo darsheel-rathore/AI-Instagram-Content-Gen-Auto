@@ -1930,16 +1930,16 @@ export default function Dashboard() {
                     const lines = selectedIdea.ideas.split('\n')
                     return lines.map((line, i) => {
                       if (!line.trim()) return <div key={i} className="h-2" />
-                      if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /)) {
-                        const cleanText = line.replace(/\*\*/g, '').replace(/^#{1,3} /, '').trim()
-                        const isReelIdea = /reel\s*idea\s*#?\d+/i.test(cleanText)
+                      const cleanText = line.replace(/\*\*/g, '').replace(/^#{1,3} /, '').trim()
+                      const isReelIdea = /^reel\s*idea\s*#?\d+/i.test(cleanText)
+                      if (line.match(/^\*\*.*\*\*$/) || line.match(/^#{1,3} /) || isReelIdea) {
 
                         if (isReelIdea) {
                           const getSectionContent = () => {
                             const nextIdx = lines.findIndex((l, j) => {
                               if (j <= i) return false
                               const ct = l.replace(/\*\*/g, '').replace(/^#{1,3} /, '').trim()
-                              return (l.match(/^\*\*.*\*\*$/) || l.match(/^#{1,3} /)) && /reel\s*idea\s*#?\d+/i.test(ct)
+                              return /^reel\s*idea\s*#?\d+/i.test(ct)
                             })
                             return lines.slice(i, nextIdx === -1 ? undefined : nextIdx).join('\n')
                           }
