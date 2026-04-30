@@ -38,6 +38,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'analysis':       'Reel Analysis',
   'content-ideas':  'Content Ideas',
   'pdf-generation': 'PDF Generation',
+  'scraping':       'Instagram Scraping',
 }
 
 const FEATURE_COLORS: Record<string, string> = {
@@ -45,21 +46,24 @@ const FEATURE_COLORS: Record<string, string> = {
   'analysis':       '#8b5cf6',
   'content-ideas':  '#10b981',
   'pdf-generation': '#f59e0b',
+  'scraping':       '#f97316',
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Claude (Anthropic)',
   openai:    'OpenAI',
   gemini:    'Google Gemini',
+  apify:     'Apify (Scraping)',
 }
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: '#8b5cf6',
   openai:    '#10b981',
   gemini:    '#3b82f6',
+  apify:     '#f97316',
 }
 
-const ALL_PROVIDERS = ['anthropic', 'openai', 'gemini']
+const ALL_PROVIDERS = ['anthropic', 'openai', 'gemini', 'apify']
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -590,9 +594,9 @@ export default function UsagePage() {
 
         {/* ── Footnote ── */}
         <p className="text-xs text-slate-700 text-center pb-4">
-          Cost estimates use published pricing (input/output per million tokens; Whisper $0.006/min).
-          Actual billing may differ — always verify in your provider dashboard.
-          Future providers (Apify, etc.) can be added to this tracker.
+          AI costs estimated from published token pricing; Whisper billed at $0.006/min.
+          Apify costs are the exact USD from each completed scrape run.
+          Always verify totals in your provider dashboard.
         </p>
 
       </div>

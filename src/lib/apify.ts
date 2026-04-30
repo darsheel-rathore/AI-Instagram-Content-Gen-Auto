@@ -26,11 +26,14 @@ export async function startScrapeRun(instagramUrl: string, limit = 30, onlyPosts
   }
 }
 
-export async function getRunStatus(runId: string): Promise<string> {
+export async function getRunStatus(runId: string): Promise<{ status: string; costUsd?: number }> {
   const res = await fetch(`${BASE}/actor-runs/${runId}?token=${APIFY_TOKEN}`)
   if (!res.ok) throw new Error(`Status check failed: ${res.status}`)
   const data = await res.json()
-  return data.data.status as string
+  return {
+    status: data.data.status as string,
+    costUsd: data.data.usageTotalUsd as number | undefined,
+  }
 }
 
 export async function fetchResults(datasetId: string, limit = 30): Promise<Reel[]> {

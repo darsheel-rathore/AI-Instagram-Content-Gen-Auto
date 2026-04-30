@@ -1,8 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 
-export type Feature = 'transcription' | 'analysis' | 'content-ideas' | 'pdf-generation'
-export type UsageProvider = 'anthropic' | 'openai' | 'gemini'
+export type Feature = 'transcription' | 'analysis' | 'content-ideas' | 'pdf-generation' | 'scraping'
+export type UsageProvider = 'anthropic' | 'openai' | 'gemini' | 'apify'
 
 export interface UsageEntry {
   id: string
