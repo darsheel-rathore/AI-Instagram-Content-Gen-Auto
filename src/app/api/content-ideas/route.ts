@@ -39,64 +39,62 @@ function getReelContent(r: Reel, dataSources: DataSource[]): string {
 
 
 // ─────────────────────────────────────────────
-// USER PROMPT BUILDER
+// DATA CONTEXT BUILDER  (no format instructions — system prompt owns everything)
 // ─────────────────────────────────────────────
-function buildPrompt(
-  myTopReels: string,
-  myLowReels: string,
-  competitorContext: string,
+function buildDataContext(
+  myReels: Reel[],
+  competitorReels: Record<string, Reel[]>,
+  dataSources: DataSource[],
+  includeTopReels: boolean,
+  includeLowReels: boolean,
+  includeCompetitorData: boolean,
 ): string {
-  return `MY ACCOUNT: @${process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_account'}
+  const reelSummary = (r: Reel) => {
+    const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
+    const content = getReelContent(r, dataSources)
+    return `- ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement\n  ${content}`
+  }
 
-TOP PERFORMING REELS (by views):
-${myTopReels || '(no data yet)'}
+  const parts: string[] = []
 
-UNDERPERFORMING REELS:
-${myLowReels || '(no data yet)'}
+  if (includeTopReels) {
+    const topReels = [...(myReels ?? [])].sort((a, b) => b.views - a.views).slice(0, 5)
+    if (topReels.length > 0) {
+      parts.push(`MY TOP PERFORMING REELS (by views):\n${topReels.map(reelSummary).join('\n')}`)
+    }
+  }
 
-COMPETITOR DATA:
-${competitorContext || '(no competitor data yet)'}
+  if (includeLowReels) {
+    const lowReels = [...(myReels ?? [])].sort((a, b) => a.views - b.views).slice(0, 3)
+    if (lowReels.length > 0) {
+      parts.push(`MY UNDERPERFORMING REELS:\n${lowReels.map(reelSummary).join('\n')}`)
+    }
+  }
 
-Based on this data, provide:
-
-1. HEADLINE INSIGHT — The single biggest observation from all the data combined. One sharp sentence.
-
-2. STOP MAKING — 2–3 content angles that are clearly not working for this account. Be specific, reference view counts.
-
-3. CONTENT IDEAS — Generate 5 reel ideas using EXACTLY this format for each:
-
-REEL IDEA #[number]
-
-Core insight: (One sentence — what is this really about?)
-Hook: (Exact words for the first 3 seconds)
-What to cover: (3–4 bullet points max)
-Ending/CTA: (Question, reframe, or soft invitation — never a hard sell)
-Why this works for her audience: (One line)
-Connects to offer: (Birth Chart Reading / Hypnotherapy Package / Workshop / PDF — or "None")
-
-Use view counts and content signals (where available) as evidence for why each idea will work.
-Hold the voice standard from your instructions — every idea must make her ideal client feel understood before it makes them feel informed.`
-}
-
-
-// ─────────────────────────────────────────────
-// COMPETITOR CONTEXT BUILDER
-// ─────────────────────────────────────────────
-function buildCompetitorContext(competitorReels: Record<string, Reel[]>, dataSources: DataSource[]): string {
-  return Object.entries(competitorReels ?? {})
-    .map(([username, reels]) => {
-      const topReels = [...reels]
-        .sort((a, b) => b.views - a.views)
-        .slice(0, 3)
-        .map((r) => {
-          const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
-          const content = getReelContent(r, dataSources)
-          return `  - ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement\n  ${content}`
+  if (includeCompetitorData) {
+    const compEntries = Object.entries(competitorReels ?? {})
+    if (compEntries.length > 0) {
+      const compContext = compEntries
+        .map(([username, reels]) => {
+          const topReels = [...reels]
+            .sort((a, b) => b.views - a.views)
+            .slice(0, 3)
+            .map((r) => {
+              const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
+              const content = getReelContent(r, dataSources)
+              return `  - ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement\n  ${content}`
+            })
+            .join('\n')
+          return `@${username} top reels:\n${topReels}`
         })
-        .join('\n')
-      return `@${username} top reels:\n${topReels}`
-    })
-    .join('\n\n')
+        .join('\n\n')
+      parts.push(`COMPETITOR DATA:\n${compContext}`)
+    }
+  }
+
+  if (parts.length === 0) return '(No performance data selected)'
+
+  return `Account: @${process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_account'}\n\n${parts.join('\n\n')}`
 }
 
 
@@ -171,7 +169,20 @@ export async function POST(req: NextRequest) {
     provider: requestedProvider,
     model: requestedModel,
     dataSources: requestedSources,
-  }: { myReels: Reel[]; competitorReels: Record<string, Reel[]>; systemPrompt: string; provider?: string; model?: string; dataSources?: string[] } = await req.json()
+    includeTopReels = true,
+    includeLowReels = true,
+    includeCompetitorData = true,
+  }: {
+    myReels: Reel[]
+    competitorReels: Record<string, Reel[]>
+    systemPrompt: string
+    provider?: string
+    model?: string
+    dataSources?: string[]
+    includeTopReels?: boolean
+    includeLowReels?: boolean
+    includeCompetitorData?: boolean
+  } = await req.json()
 
   const provider = ((requestedProvider ?? process.env.AI_PROVIDER ?? 'gemini') as Provider)
   const model = requestedModel ?? DEFAULT_MODELS[provider]
@@ -196,37 +207,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No prompt provided — set one up in Prompt Factory' }, { status: 400 })
   }
 
-  const reelSummary = (r: Reel) => {
-    const eng = r.views > 0 ? (((r.likes + r.comments) / r.views) * 100).toFixed(1) : '0.0'
-    const content = getReelContent(r, dataSources)
-    return `- ${r.views.toLocaleString()} views | ${r.likes.toLocaleString()} likes | ${r.comments.toLocaleString()} comments | ${eng}% engagement\n  ${content}`
-  }
+  // User message = raw data only. System prompt = user's instructions (owns the format entirely).
+  const dataContext = buildDataContext(myReels, competitorReels, dataSources, includeTopReels, includeLowReels, includeCompetitorData)
 
-  const myTopReels = [...(myReels ?? [])]
-    .sort((a, b) => b.views - a.views)
-    .slice(0, 5)
-    .map((r) => reelSummary(r))
-    .join('\n')
-
-  const myLowReels = [...(myReels ?? [])]
-    .sort((a, b) => a.views - b.views)
-    .slice(0, 3)
-    .map((r) => reelSummary(r))
-    .join('\n')
-
-  const competitorContext = buildCompetitorContext(competitorReels, dataSources)
-  const prompt = buildPrompt(myTopReels, myLowReels, competitorContext)
-
-  log(`━━━ Generate Ideas — provider: ${provider} | model: ${model} | dataSources: ${dataSources.join(', ')} | my reels: ${(myReels ?? []).length} | competitors: ${Object.keys(competitorReels ?? {}).length}`)
+  log(`━━━ Generate Ideas — provider: ${provider} | model: ${model} | dataSources: ${dataSources.join(', ')} | topReels: ${includeTopReels} | lowReels: ${includeLowReels} | competitors: ${includeCompetitorData}`)
   log(`─── SYSTEM PROMPT (${systemPrompt.length} chars) ───\n${systemPrompt}`)
-  log(`─── USER PROMPT (${prompt.length} chars) ───\n${prompt}`)
-  log(`─── TOTAL (${systemPrompt.length + prompt.length} chars) ───`)
+  log(`─── DATA CONTEXT (${dataContext.length} chars) ───\n${dataContext}`)
+  log(`─── TOTAL (${systemPrompt.length + dataContext.length} chars) ───`)
 
   try {
     const generators: Record<Provider, () => Promise<string>> = {
-      anthropic: () => generateWithAnthropic(prompt, systemPrompt, model),
-      openai: () => generateWithOpenAI(prompt, systemPrompt, model),
-      gemini: () => generateWithGemini(prompt, systemPrompt, model),
+      anthropic: () => generateWithAnthropic(dataContext, systemPrompt, model),
+      openai: () => generateWithOpenAI(dataContext, systemPrompt, model),
+      gemini: () => generateWithGemini(dataContext, systemPrompt, model),
     }
     const ideas = await generators[provider]()
     return NextResponse.json({ ideas })

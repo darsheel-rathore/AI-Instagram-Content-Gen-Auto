@@ -233,6 +233,11 @@ export default function Dashboard() {
   // Ideas data sources
   const [ideaDataSources, setIdeaDataSources] = useState<Set<string>>(new Set(['analysis']))
 
+  // Data inclusion toggles (which datasets to send to the AI)
+  const [includeMyTopReels, setIncludeMyTopReels] = useState(true)
+  const [includeMyLowReels, setIncludeMyLowReels] = useState(true)
+  const [includeCompetitorData, setIncludeCompetitorData] = useState(true)
+
   // PDF export settings
   const [pdfPromptTemplates, setPdfPromptTemplates] = useState<PromptTemplate[]>([])
   const [selectedPdfPromptId, setSelectedPdfPromptId] = useState<string | null>(null)
@@ -274,6 +279,9 @@ export default function Dashboard() {
   const pdfProviderRef = useRef<AIProvider>('gemini')
   const pdfModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
   const selectedPdfDesignRef = useRef<string>('executive')
+  const includeMyTopReelsRef = useRef(true)
+  const includeMyLowReelsRef = useRef(true)
+  const includeCompetitorDataRef = useRef(true)
   useEffect(() => { myReelsRef.current = myReels }, [myReels])
   useEffect(() => { competitorsRef.current = competitors }, [competitors])
   useEffect(() => { selectedCompForIdeasRef.current = selectedCompForIdeas }, [selectedCompForIdeas])
@@ -287,6 +295,9 @@ export default function Dashboard() {
   useEffect(() => { selectedAnalysisProviderRef.current = selectedAnalysisProvider }, [selectedAnalysisProvider])
   useEffect(() => { selectedAnalysisModelRef.current = selectedAnalysisModel }, [selectedAnalysisModel])
   useEffect(() => { ideaDataSourcesRef.current = ideaDataSources }, [ideaDataSources])
+  useEffect(() => { includeMyTopReelsRef.current = includeMyTopReels }, [includeMyTopReels])
+  useEffect(() => { includeMyLowReelsRef.current = includeMyLowReels }, [includeMyLowReels])
+  useEffect(() => { includeCompetitorDataRef.current = includeCompetitorData }, [includeCompetitorData])
   useEffect(() => { pdfPromptTemplatesRef.current = pdfPromptTemplates }, [pdfPromptTemplates])
   useEffect(() => { selectedPdfPromptIdRef.current = selectedPdfPromptId }, [selectedPdfPromptId])
   useEffect(() => { pdfProviderRef.current = pdfProvider }, [pdfProvider])
@@ -939,15 +950,16 @@ export default function Dashboard() {
     const systemChars = template?.content.length ?? 0
     const perReel = ideaDataSources.has('analysis') ? 280 : ideaDataSources.has('transcript') ? 420 : 220
 
-    // My reels: top 5 + bottom 3 (same slice as the API)
-    const myCount = Math.min(5, myReels.length) + Math.min(3, myReels.length)
+    // My reels: top 5 + bottom 3, filtered by toggle
+    const myCount = (includeMyTopReels ? Math.min(5, myReels.length) : 0)
+                  + (includeMyLowReels ? Math.min(3, myReels.length) : 0)
 
     // Mirror exactly the filtering generateIdeas does so the count matches what's actually sent
     const sel = selectedCompForIdeas
     const allKeys = Object.keys(competitors)
     let compReelCount = 0
     let creatorCount = 0
-    if (sel.size > 0) {
+    if (includeCompetitorData && sel.size > 0) {
       const entries = sel.size >= allKeys.length
         ? Object.entries(competitors)
         : Object.entries(competitors).filter(([u]) => sel.has(u))
@@ -959,7 +971,7 @@ export default function Dashboard() {
       }
     }
 
-    const est = systemChars + 550 + (myCount + compReelCount) * perReel
+    const est = systemChars + 120 + (myCount + compReelCount) * perReel
     setPromptSizeEstimate(est)
     setPromptSizeCounts({ myCount, compReelCount, creatorCount })
     setShowPromptSizeConfirm(true)
@@ -1007,6 +1019,9 @@ export default function Dashboard() {
           provider: providerSnapshot,
           model: modelSnapshot,
           dataSources: Array.from(ideaDataSourcesRef.current),
+          includeTopReels: includeMyTopReelsRef.current,
+          includeLowReels: includeMyLowReelsRef.current,
+          includeCompetitorData: includeCompetitorDataRef.current,
         }),
       })
       const data = await res.json()
@@ -1599,6 +1614,36 @@ export default function Dashboard() {
                 >
                   {ideaDataSources.size === 3 ? 'none' : 'all'}
                 </button>
+              </div>
+
+              {/* Divider */}
+              <div className="h-px bg-slate-800" />
+
+              {/* Row 3: Data source toggles */}
+              <div className="flex items-center gap-1 px-4 py-3 flex-wrap">
+                <span className="text-xs text-slate-600 font-medium mr-2 flex-shrink-0">Data</span>
+                {([
+                  { key: 'top', label: 'Top Reels', active: includeMyTopReels, set: setIncludeMyTopReels },
+                  { key: 'low', label: 'Low Reels', active: includeMyLowReels, set: setIncludeMyLowReels },
+                  { key: 'comp', label: 'Competitors', active: includeCompetitorData, set: setIncludeCompetitorData },
+                ] as const).map(({ key, label, active, set }) => (
+                  <button
+                    key={key}
+                    onClick={() => set((v) => !v)}
+                    className={clsx(
+                      'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors',
+                      active
+                        ? 'text-amber-400 bg-amber-500/10'
+                        : 'text-slate-500 hover:text-slate-400 hover:bg-slate-800/60',
+                    )}
+                  >
+                    <span className={clsx(
+                      'w-1.5 h-1.5 rounded-full border flex-shrink-0 transition-colors',
+                      active ? 'bg-amber-400 border-amber-400' : 'border-slate-600',
+                    )} />
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
