@@ -155,8 +155,43 @@ function hexToRgb(hex: string): RGB {
   const n = parseInt(hex.replace('#', ''), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
-// suppress unused warning
-void hexToRgb
+
+function styleFromCustomColors(colors: PdfTemplateDefinition['colors']): Style {
+  const pageBg = hexToRgb(colors.bg)
+  const headerBg = hexToRgb(colors.header)
+  const accentBar = hexToRgb(colors.accent)
+  const bodyColor = hexToRgb(colors.text)
+  const darkPage = (pageBg[0] * 299 + pageBg[1] * 587 + pageBg[2] * 114) / 1000 < 128
+  return {
+    pageBg,
+    headerBg,
+    headerH: 48,
+    titleColor: [255, 255, 255],
+    subtitleColor: [200, 215, 235],
+    dateColor: [160, 175, 195],
+    accentBar,
+    headingColor: darkPage ? accentBar : headerBg,
+    bodyColor,
+    bulletColor: accentBar,
+    separatorColor: darkPage ? [40, 50, 70] : [210, 215, 225],
+    footerColor: [130, 140, 160],
+    sideBarColor: accentBar,
+    darkPage,
+  }
+}
+
+function resolveStyle(templateId: string): Style {
+  if (STYLES[templateId]) return STYLES[templateId]
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('pdf_custom_templates') : null
+    if (raw) {
+      const custom = JSON.parse(raw) as PdfTemplateDefinition[]
+      const found = custom.find((t) => t.id === templateId)
+      if (found) return styleFromCustomColors(found.colors)
+    }
+  } catch { /* ignore */ }
+  return STYLES.executive
+}
 
 const LINE_H_10 = 4.5  // mm per line at 10pt
 const LINE_H_11 = 5.0  // mm per line at 11pt
@@ -168,7 +203,7 @@ export async function generateAndDownloadPdf(content: PdfContent, templateId: st
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const doc: any = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
-  const s: Style = STYLES[templateId] ?? STYLES.executive
+  const s: Style = resolveStyle(templateId)
   const PW = 210
   const PH = 297
   const ML = 20

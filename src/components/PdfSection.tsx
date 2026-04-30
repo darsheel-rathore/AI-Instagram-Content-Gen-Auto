@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronDown, ChevronUp, FileText, Check } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { ChevronDown, ChevronUp, FileText, Check, Upload, Trash2, X } from 'lucide-react'
 import clsx from 'clsx'
 import PromptFactory, { type PromptTemplate } from './PromptFactory'
-import { PDF_TEMPLATES } from '@/lib/pdf-templates'
+import { PDF_TEMPLATES, type PdfTemplateDefinition } from '@/lib/pdf-templates'
 
 type AIProvider = 'anthropic' | 'openai' | 'gemini'
 type ModelCost = 'expensive' | 'moderate' | 'cheap'
@@ -44,6 +44,13 @@ const COST_DOT: Record<ModelCost, string> = {
   cheap: 'bg-emerald-500',
 }
 
+const PDF_ONLINE_LINKS = [
+  { name: 'Coolors',       url: 'https://coolors.co',                                        note: 'Color palette generator'       },
+  { name: 'Adobe Color',   url: 'https://color.adobe.com/themes',                            note: 'Professional color themes'     },
+  { name: 'Canva Colors',  url: 'https://www.canva.com/colors/color-palette-generator/',     note: 'Color palette inspiration'     },
+  { name: 'Muzli Colors',  url: 'https://colors.muz.li',                                     note: 'Designer color combinations'   },
+]
+
 interface Props {
   selectedDesign: string
   onDesignChange: (id: string) => void
@@ -72,8 +79,60 @@ export default function PdfSection({
   onPromptDelete,
 }: Props) {
   const [open, setOpen] = useState(false)
+  const [customTemplates, setCustomTemplates] = useState<PdfTemplateDefinition[]>([])
+  const [showBrowsePanel, setShowBrowsePanel] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
 
-  const currentTemplate = PDF_TEMPLATES.find((t) => t.id === selectedDesign) ?? PDF_TEMPLATES[0]
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pdf_custom_templates')
+      if (saved) setCustomTemplates(JSON.parse(saved) as PdfTemplateDefinition[])
+    } catch { /* ignore */ }
+  }, [])
+
+  const allTemplates = [...PDF_TEMPLATES, ...customTemplates]
+  const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? PDF_TEMPLATES[0]
+
+  function handleImportTemplate(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target?.result as string) as PdfTemplateDefinition
+        if (!json.name || !json.colors?.header || !json.colors?.bg) throw new Error()
+        const t: PdfTemplateDefinition = {
+          ...json,
+          id: `pdf_custom_${Date.now()}`,
+          description: json.description ?? 'Custom template',
+        }
+        const updated = [...customTemplates, t]
+        setCustomTemplates(updated)
+        localStorage.setItem('pdf_custom_templates', JSON.stringify(updated))
+        onDesignChange(t.id)
+      } catch {
+        alert('Invalid template JSON. Export a built-in template first to see the required format.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  function handleDeleteTemplate(id: string) {
+    const updated = customTemplates.filter((t) => t.id !== id)
+    setCustomTemplates(updated)
+    localStorage.setItem('pdf_custom_templates', JSON.stringify(updated))
+    if (selectedDesign === id) onDesignChange(PDF_TEMPLATES[0].id)
+  }
+
+  function handleExportTemplate(tmpl: PdfTemplateDefinition) {
+    const exportData = { name: tmpl.name, description: tmpl.description, colors: tmpl.colors }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `pdf_template_${tmpl.id}.json`; a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
@@ -86,7 +145,6 @@ export default function PdfSection({
           <FileText className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
           <span className="text-xs font-semibold text-slate-300">PDF Export</span>
           <span className="text-xs text-slate-600">·</span>
-          {/* Color swatch for selected template */}
           <span
             className="inline-flex w-3 h-3 rounded-sm flex-shrink-0"
             style={{ background: currentTemplate.colors.header }}
@@ -106,73 +164,140 @@ export default function PdfSection({
 
           {/* Template picker */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Design Template</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 lg:grid-cols-5">
-              {PDF_TEMPLATES.map((tmpl) => {
-                const isSelected = selectedDesign === tmpl.id
-                return (
-                  <button
-                    key={tmpl.id}
-                    onClick={() => onDesignChange(tmpl.id)}
-                    className={clsx(
-                      'relative rounded-xl border overflow-hidden text-left transition-all group',
-                      isSelected
-                        ? 'border-violet-500/70 ring-1 ring-violet-500/40 shadow-lg shadow-violet-500/10'
-                        : 'border-slate-700/60 hover:border-slate-600',
-                    )}
-                  >
-                    {/* Template visual preview */}
-                    <div className="w-full" style={{ aspectRatio: '3/4', background: tmpl.colors.bg }}>
-                      {/* Header band */}
-                      <div
-                        className="w-full"
-                        style={{ height: '35%', background: tmpl.colors.header, position: 'relative' }}
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Design Template</p>
+
+            {/* Action row */}
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-slate-700">{allTemplates.length} templates</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowBrowsePanel((v) => !v)}
+                  className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                >
+                  Browse Online
+                </button>
+                <button
+                  onClick={() => importRef.current?.click()}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+                >
+                  <Upload className="w-3 h-3" /> Import JSON
+                </button>
+                <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportTemplate} />
+              </div>
+            </div>
+
+            {/* Browse Online panel */}
+            {showBrowsePanel && (
+              <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-white">Color & Design Inspiration</span>
+                  <button onClick={() => setShowBrowsePanel(false)}>
+                    <X className="w-4 h-4 text-slate-500 hover:text-white transition-colors" />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  Pick a color palette, export a built-in template as JSON, update the hex colors, then import it back.
+                </p>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {PDF_ONLINE_LINKS.map((link) => (
+                    <a
+                      key={link.name}
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-lg border border-slate-700/60 bg-slate-800/40 px-3 py-2 hover:border-violet-500/40 transition-colors"
+                    >
+                      <p className="text-xs font-medium text-violet-300">{link.name} ↗</p>
+                      <p className="text-xs text-slate-600 mt-0.5">{link.note}</p>
+                    </a>
+                  ))}
+                </div>
+                <div className="border-t border-slate-800 pt-3">
+                  <p className="text-xs text-slate-600 mb-2">Export a built-in template as JSON to customize colors:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {PDF_TEMPLATES.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => handleExportTemplate(t)}
+                        className="text-xs text-slate-500 hover:text-violet-300 underline underline-offset-2 transition-colors"
                       >
-                        {/* Accent bar at bottom of header */}
+                        Export {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Template grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 lg:grid-cols-5">
+              {allTemplates.map((tmpl) => {
+                const isSelected = selectedDesign === tmpl.id
+                const isCustom = !PDF_TEMPLATES.some((b) => b.id === tmpl.id)
+                return (
+                  <div key={tmpl.id} className="relative">
+                    <button
+                      onClick={() => onDesignChange(tmpl.id)}
+                      className={clsx(
+                        'w-full relative rounded-xl border overflow-hidden text-left transition-all',
+                        isSelected
+                          ? 'border-violet-500/70 ring-1 ring-violet-500/40 shadow-lg shadow-violet-500/10'
+                          : 'border-slate-700/60 hover:border-slate-600',
+                      )}
+                    >
+                      {/* Template visual preview */}
+                      <div className="w-full" style={{ aspectRatio: '3/4', background: tmpl.colors.bg }}>
                         <div
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: 3,
-                            background: tmpl.colors.accent,
-                          }}
-                        />
-                        {/* Title lines mock */}
-                        <div className="px-2 pt-2 space-y-1">
-                          <div style={{ height: 3, width: '70%', background: 'rgba(255,255,255,0.85)', borderRadius: 2 }} />
-                          <div style={{ height: 2, width: '50%', background: 'rgba(255,255,255,0.4)', borderRadius: 2 }} />
+                          className="w-full"
+                          style={{ height: '35%', background: tmpl.colors.header, position: 'relative' }}
+                        >
+                          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: tmpl.colors.accent }} />
+                          <div className="px-2 pt-2 space-y-1">
+                            <div style={{ height: 3, width: '70%', background: 'rgba(255,255,255,0.85)', borderRadius: 2 }} />
+                            <div style={{ height: 2, width: '50%', background: 'rgba(255,255,255,0.4)', borderRadius: 2 }} />
+                          </div>
+                        </div>
+                        <div className="px-2 py-2 space-y-2">
+                          {[100, 85, 90, 75].map((w, i) => (
+                            <div key={i} className="space-y-0.5">
+                              <div style={{ height: 2, width: `${w * 0.35}%`, background: tmpl.colors.accent, borderRadius: 1 }} />
+                              <div style={{ height: 1.5, width: `${w}%`, background: tmpl.colors.text + '55', borderRadius: 1 }} />
+                              <div style={{ height: 1.5, width: `${w * 0.8}%`, background: tmpl.colors.text + '35', borderRadius: 1 }} />
+                            </div>
+                          ))}
                         </div>
                       </div>
-                      {/* Body content mock */}
-                      <div className="px-2 py-2 space-y-2">
-                        {[100, 85, 90, 75].map((w, i) => (
-                          <div key={i} className="space-y-0.5">
-                            <div style={{ height: 2, width: `${w * 0.35}%`, background: tmpl.colors.accent, borderRadius: 1 }} />
-                            <div style={{ height: 1.5, width: `${w}%`, background: tmpl.colors.text + '55', borderRadius: 1 }} />
-                            <div style={{ height: 1.5, width: `${w * 0.8}%`, background: tmpl.colors.text + '35', borderRadius: 1 }} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
 
-                    {/* Label */}
-                    <div
-                      className="px-2 py-1.5 border-t border-slate-700/40"
-                      style={{ background: 'rgba(15,20,40,0.8)' }}
-                    >
-                      <p className="text-xs font-semibold text-slate-200 truncate">{tmpl.name}</p>
-                      <p className="text-xs text-slate-500 truncate leading-tight">{tmpl.description}</p>
-                    </div>
-
-                    {/* Selected check */}
-                    {isSelected && (
-                      <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-violet-500 flex items-center justify-center shadow-md">
-                        <Check className="w-3 h-3 text-white" />
+                      {/* Label */}
+                      <div
+                        className="px-2 py-1.5 border-t border-slate-700/40"
+                        style={{ background: 'rgba(15,20,40,0.8)' }}
+                      >
+                        <p className="text-xs font-semibold text-slate-200 truncate">{tmpl.name}</p>
+                        <p className="text-xs text-slate-500 truncate leading-tight">
+                          {isCustom ? 'Custom' : tmpl.description}
+                        </p>
                       </div>
+
+                      {/* Selected check */}
+                      {isSelected && (
+                        <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-violet-500 flex items-center justify-center shadow-md">
+                          <Check className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Delete button — custom templates only */}
+                    {isCustom && (
+                      <button
+                        onClick={() => handleDeleteTemplate(tmpl.id)}
+                        className="absolute top-1 left-1 w-5 h-5 rounded-full bg-slate-900/80 flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors z-10"
+                        title="Delete template"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                      </button>
                     )}
-                  </button>
+                  </div>
                 )
               })}
             </div>

@@ -557,15 +557,31 @@ export default function MasterclassTab() {
 
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                 {allTemplates.map((t) => (
-                  <button key={t.id} onClick={() => setSelectedTemplateId(t.id)}
-                    className={clsx('rounded-xl border p-2.5 text-left transition-all',
-                      selectedTemplateId === t.id
-                        ? 'border-violet-500 bg-violet-500/10 ring-1 ring-violet-500/30'
-                        : 'border-slate-700/60 hover:border-slate-600')}>
-                    <div className="w-full h-7 rounded-lg mb-1.5 border border-slate-700/40" style={{ background: t.preview }} />
-                    <p className="text-xs font-medium text-white truncate">{t.name}</p>
-                    {t.isCustom && <span className="text-xs text-violet-400">Custom</span>}
-                  </button>
+                  <div key={t.id} className="relative">
+                    <button onClick={() => setSelectedTemplateId(t.id)}
+                      className={clsx('w-full rounded-xl border p-2.5 text-left transition-all',
+                        selectedTemplateId === t.id
+                          ? 'border-violet-500 bg-violet-500/10 ring-1 ring-violet-500/30'
+                          : 'border-slate-700/60 hover:border-slate-600')}>
+                      <div className="w-full h-7 rounded-lg mb-1.5 border border-slate-700/40" style={{ background: t.preview }} />
+                      <p className="text-xs font-medium text-white truncate">{t.name}</p>
+                      {t.isCustom && <span className="text-xs text-violet-400">Custom</span>}
+                    </button>
+                    {t.isCustom && (
+                      <button
+                        onClick={() => {
+                          const updated = customTemplates.filter((c) => c.id !== t.id)
+                          setCustomTemplates(updated)
+                          localStorage.setItem('mc_custom_templates', JSON.stringify(updated))
+                          if (selectedTemplateId === t.id) setSelectedTemplateId(BUILT_IN_TEMPLATES[0].id)
+                        }}
+                        className="absolute top-1 left-1 w-5 h-5 rounded-full bg-slate-900/80 flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors z-10"
+                        title="Delete template"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
