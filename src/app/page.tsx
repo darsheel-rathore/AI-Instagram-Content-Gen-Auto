@@ -880,6 +880,7 @@ export default function Dashboard() {
     setGeneratingPdfFor(ideaTitle)
     setPdfErrors((prev) => { const n = { ...prev }; delete n[ideaTitle]; return n })
     try {
+      const isGiveaway = selectedPdfDesignRef.current === 'giveaway'
       const customPrompt = pdfPromptTemplatesRef.current.find((t) => t.id === selectedPdfPromptIdRef.current)?.content
       const res = await fetch('/api/generate-pdf-content', {
         method: 'POST',
@@ -890,12 +891,36 @@ export default function Dashboard() {
           provider: pdfProviderRef.current,
           model: pdfModelRef.current,
           ideaTitle,
+          template: isGiveaway ? 'giveaway' : 'standard',
         }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error as string)
-      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
-      await generateAndDownloadPdf(data, selectedPdfDesignRef.current)
+
+      if (isGiveaway) {
+        const brandName = localStorage.getItem('pdf_giveaway_brand') ?? 'Medha'
+        const instagramHandle = localStorage.getItem('pdf_giveaway_handle') ?? 'themedhachannel'
+        const pdfRes = await fetch('/api/generate-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: data, brandName, instagramHandle }),
+        })
+        if (!pdfRes.ok) {
+          const err = await pdfRes.json().catch(() => ({}))
+          throw new Error((err as { error?: string }).error ?? 'PDF generation failed')
+        }
+        const blob = await pdfRes.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        const safe = ideaTitle.slice(0, 50).replace(/[^a-z0-9\s]/gi, '').trim().replace(/\s+/g, '-').toLowerCase()
+        a.href = url
+        a.download = `${safe || 'giveaway'}.pdf`
+        a.click()
+        URL.revokeObjectURL(url)
+      } else {
+        const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
+        await generateAndDownloadPdf(data, selectedPdfDesignRef.current)
+      }
     } catch (e: unknown) {
       setPdfErrors((prev) => ({ ...prev, [ideaTitle]: e instanceof Error ? e.message : String(e) }))
     } finally {

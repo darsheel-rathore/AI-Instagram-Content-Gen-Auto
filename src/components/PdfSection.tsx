@@ -81,14 +81,30 @@ export default function PdfSection({
   const [open, setOpen] = useState(false)
   const [customTemplates, setCustomTemplates] = useState<PdfTemplateDefinition[]>([])
   const [showBrowsePanel, setShowBrowsePanel] = useState(false)
+  const [giveawayBrand, setGiveawayBrand] = useState('Medha')
+  const [giveawayHandle, setGiveawayHandle] = useState('themedhachannel')
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem('pdf_custom_templates')
       if (saved) setCustomTemplates(JSON.parse(saved) as PdfTemplateDefinition[])
+      const brand = localStorage.getItem('pdf_giveaway_brand')
+      const handle = localStorage.getItem('pdf_giveaway_handle')
+      if (brand) setGiveawayBrand(brand)
+      if (handle) setGiveawayHandle(handle)
     } catch { /* ignore */ }
   }, [])
+
+  function saveGiveawayBrand(v: string) {
+    setGiveawayBrand(v)
+    localStorage.setItem('pdf_giveaway_brand', v)
+  }
+
+  function saveGiveawayHandle(v: string) {
+    setGiveawayHandle(v.replace(/^@/, ''))
+    localStorage.setItem('pdf_giveaway_handle', v.replace(/^@/, ''))
+  }
 
   const allTemplates = [...PDF_TEMPLATES, ...customTemplates]
   const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? PDF_TEMPLATES[0]
@@ -215,7 +231,7 @@ export default function PdfSection({
                 <div className="border-t border-slate-800 pt-3">
                   <p className="text-xs text-slate-600 mb-2">Export a built-in template as JSON to customize colors:</p>
                   <div className="flex flex-wrap gap-2">
-                    {PDF_TEMPLATES.map((t) => (
+                    {PDF_TEMPLATES.filter((t) => !t.htmlTemplate).map((t) => (
                       <button
                         key={t.id}
                         onClick={() => handleExportTemplate(t)}
@@ -275,7 +291,7 @@ export default function PdfSection({
                       >
                         <p className="text-xs font-semibold text-slate-200 truncate">{tmpl.name}</p>
                         <p className="text-xs text-slate-500 truncate leading-tight">
-                          {isCustom ? 'Custom' : tmpl.description}
+                          {isCustom ? 'Custom' : tmpl.htmlTemplate ? 'HTML · Premium' : tmpl.description}
                         </p>
                       </div>
 
@@ -301,6 +317,39 @@ export default function PdfSection({
                 )
               })}
             </div>
+
+            {/* Giveaway brand config */}
+            {selectedDesign === 'giveaway' && (
+              <div className="mt-3 rounded-xl border border-amber-700/30 bg-amber-500/5 p-3 space-y-2">
+                <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-wider">Brand Config</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Brand Name</label>
+                    <input
+                      type="text"
+                      value={giveawayBrand}
+                      onChange={(e) => saveGiveawayBrand(e.target.value)}
+                      placeholder="Medha"
+                      className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-600/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Instagram Handle</label>
+                    <div className="flex items-center bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1.5 gap-1 focus-within:border-amber-600/50">
+                      <span className="text-xs text-slate-500">@</span>
+                      <input
+                        type="text"
+                        value={giveawayHandle}
+                        onChange={(e) => saveGiveawayHandle(e.target.value)}
+                        placeholder="themedhachannel"
+                        className="flex-1 bg-transparent text-xs text-slate-200 placeholder-slate-600 focus:outline-none min-w-0"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-600">Appears in the header, footer, watermark, and QR code.</p>
+              </div>
+            )}
           </div>
 
           {/* Divider */}

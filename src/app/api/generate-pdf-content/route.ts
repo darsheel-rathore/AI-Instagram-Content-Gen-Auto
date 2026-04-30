@@ -45,6 +45,32 @@ Create 5–7 sections. Suggested structure (adapt to available content):
 
 Make every word count. Language should be sharp, professional, and implementation-ready.`
 
+const GIVEAWAY_SYSTEM_PROMPT = `You are a premium content strategist creating guide PDFs for a spiritual wellness creator.
+
+Take the provided Instagram content idea and transform it into a beautifully-written premium guide PDF. This is not a corporate report — it is something a thoughtful reader would save, share, and revisit.
+
+Return ONLY valid JSON — no explanation, no markdown code fences, just the raw JSON object:
+{
+  "title": "An evocative, specific title — not a clickbait headline, not a generic one. Something a reader would underline in a book. (6-10 words)",
+  "subtitle": "One precise sentence that captures the heart of what the reader will take away. (15-20 words)",
+  "intro": "2-3 sentences that create emotional resonance before the content begins. Speak to the reader's current struggle or longing that this guide addresses.",
+  "sections": [
+    {
+      "heading": "A section title that feels like a chapter name — 3-6 words, often starting with a verb or an emotion",
+      "body": "2-3 paragraphs. Teach one thing deeply, not five things shallowly. Be specific. Write like you are explaining to someone sitting across from you — warm, intelligent, direct.",
+      "insight": "The one-sentence distillation of this section. What would you whisper to someone who truly understood it? Start with 'The truth is...' or 'What most people miss:' or similar. One sentence only."
+    }
+  ],
+  "reflectionQuestions": [
+    "Questions that make the reader pause and examine their own life — not generic prompts like 'How do you feel?' but specific, probing questions tied directly to the content."
+  ],
+  "closingNote": "2-3 sentences that feel like the closing paragraph of a meaningful letter. A gentle push forward, not a sales pitch.",
+  "ctaText": "An invitation, not a command. Something like 'Begin here. The rest will follow.' — 10-20 words that feel like permission, not pressure."
+}
+
+Structure: 4-6 sections, 3-5 reflection questions.
+Tone: Warm, intelligent, non-preachy. Like a trusted mentor who has lived this — not a motivational poster.`
+
 async function callAnthropic(userPrompt: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
@@ -106,18 +132,21 @@ export async function POST(req: NextRequest) {
     provider: reqProvider,
     model: reqModel,
     ideaTitle,
+    template,
   }: {
     content: string
     customPrompt?: string
     provider?: string
     model?: string
     ideaTitle?: string
+    template?: string
   } = await req.json()
 
   if (!content?.trim()) {
     return NextResponse.json({ error: 'No content provided' }, { status: 400 })
   }
 
+  const isGiveaway = template === 'giveaway'
   const provider = ((reqProvider ?? 'gemini') as Provider)
   const model = reqModel ?? DEFAULT_MODELS[provider]
 
@@ -135,9 +164,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `${envMap[provider]} not set` }, { status: 500 })
   }
 
-  const systemPrompt = customPrompt?.trim()
-    ? `${SYSTEM_PROMPT}\n\nAdditional instructions from the user:\n${customPrompt}`
-    : SYSTEM_PROMPT
+  const basePrompt = isGiveaway ? GIVEAWAY_SYSTEM_PROMPT : SYSTEM_PROMPT
+  const systemPrompt = (!isGiveaway && customPrompt?.trim())
+    ? `${basePrompt}\n\nAdditional instructions from the user:\n${customPrompt}`
+    : basePrompt
 
   const userPrompt = `${ideaTitle ? `Reel Idea: ${ideaTitle}\n\n` : ''}Content to format:\n\n${content}`
 
@@ -153,17 +183,13 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
       provider,
       model,
-      feature: 'pdf-generation',
+      feature: isGiveaway ? 'pdf-giveaway' : 'pdf-generation',
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
     })
 
     const cleaned = stripJsonFences(result.text)
-    const parsed = JSON.parse(cleaned) as {
-      title: string
-      subtitle: string
-      sections: Array<{ heading: string; body?: string; items?: string[] }>
-    }
+    const parsed = JSON.parse(cleaned)
     return NextResponse.json({ ...parsed, generatedAt: new Date().toISOString() })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

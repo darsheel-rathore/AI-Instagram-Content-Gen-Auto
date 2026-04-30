@@ -14,9 +14,18 @@ export interface PdfTemplateDefinition {
   name: string
   description: string
   colors: { header: string; accent: string; bg: string; text: string }
+  /** When true, this template uses HTML/puppeteer rendering instead of jsPDF */
+  htmlTemplate?: boolean
 }
 
 export const PDF_TEMPLATES: PdfTemplateDefinition[] = [
+  {
+    id: 'giveaway',
+    name: 'Giveaway',
+    description: 'Premium brand guide — HTML rendered',
+    colors: { header: '#0f1729', accent: '#c9a84c', bg: '#ffffff', text: '#374151' },
+    htmlTemplate: true,
+  },
   {
     id: 'executive',
     name: 'Executive',
