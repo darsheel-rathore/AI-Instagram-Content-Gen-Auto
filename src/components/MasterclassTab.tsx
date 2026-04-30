@@ -674,7 +674,7 @@ export default function MasterclassTab() {
       {/* ══════════════════ UPCOMING ══════════════════ */}
       {!loading && activeTab === 'current' && (
         upcoming.length === 0 ? (
-          <div className="text-center py-24 border border-dashed border-slate-800 rounded-2xl max-w-lg">
+          <div className="text-center py-24 border border-dashed border-slate-800 rounded-2xl">
             <Clock className="w-10 h-10 text-slate-800 mx-auto mb-3" />
             <p className="text-slate-400 font-medium mb-1">No upcoming masterclasses</p>
             <p className="text-slate-600 text-sm mb-6">Create one with a future event date.</p>
@@ -714,7 +714,7 @@ export default function MasterclassTab() {
       {/* ══════════════════ HISTORY ══════════════════ */}
       {!loading && activeTab === 'history' && (
         past.length === 0 ? (
-          <div className="text-center py-24 border border-dashed border-slate-800 rounded-2xl max-w-lg">
+          <div className="text-center py-24 border border-dashed border-slate-800 rounded-2xl">
             <BarChart2 className="w-10 h-10 text-slate-800 mx-auto mb-3" />
             <p className="text-slate-400 font-medium mb-1">No past masterclasses yet</p>
             <p className="text-slate-600 text-sm">Completed events appear here once their date passes.</p>
