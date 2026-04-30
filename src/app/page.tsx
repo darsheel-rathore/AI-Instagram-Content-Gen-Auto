@@ -71,8 +71,7 @@ const COST_DOT: Record<ModelCost, string> = {
   cheap:     'bg-emerald-500',
 }
 
-const MY_USERNAME = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_username'
-const MY_URL = `https://www.instagram.com/${MY_USERNAME}/`
+const ENV_USERNAME = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'your_username'
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -240,6 +239,12 @@ export default function Dashboard() {
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
 
+  // Dynamic settings loaded from settings.json
+  const [myUsername, setMyUsername] = useState(ENV_USERNAME)
+  const [autoSignoutMins, setAutoSignoutMins] = useState(0)
+  const myUsernameRef = useRef(ENV_USERNAME)
+  const myScrapeLimitRef = useRef(30)
+
   const myReelsRef = useRef(myReels)
   const competitorsRef = useRef(competitors)
   const selectedCompForIdeasRef = useRef(selectedCompForIdeas)
@@ -280,6 +285,27 @@ export default function Dashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Auto sign-out on inactivity
+  useEffect(() => {
+    if (!autoSignoutMins) return
+    let timer: ReturnType<typeof setTimeout>
+    const ms = autoSignoutMins * 60 * 1000
+    function reset() {
+      clearTimeout(timer)
+      timer = setTimeout(async () => {
+        await fetch('/api/auth/logout', { method: 'POST' })
+        window.location.href = '/login'
+      }, ms)
+    }
+    const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'] as const
+    events.forEach((e) => document.addEventListener(e, reset, { passive: true }))
+    reset()
+    return () => {
+      clearTimeout(timer)
+      events.forEach((e) => document.removeEventListener(e, reset))
+    }
+  }, [autoSignoutMins])
+
   // Keep selectedCompForIdeas in sync: only prune competitors that were removed, never auto-add
   useEffect(() => {
     setSelectedCompForIdeas((prev) => {
@@ -308,7 +334,16 @@ export default function Dashboard() {
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null }>('prompt_templates'),
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider; model?: string }>('analysis_settings'),
       loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
-    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache]) => {
+      loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number }>('settings'),
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache]) => {
+      if (settingsCache?.instagramUsername) {
+        setMyUsername(settingsCache.instagramUsername)
+        myUsernameRef.current = settingsCache.instagramUsername
+      }
+      if (settingsCache?.myReelsScrapeLimit) {
+        myScrapeLimitRef.current = settingsCache.myReelsScrapeLimit
+      }
+      setAutoSignoutMins(settingsCache?.autoSignoutMinutes ?? 0)
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
         setMyLastSynced(myCache.fetchedAt ?? null)
@@ -361,7 +396,7 @@ export default function Dashboard() {
   const fetchMyReels = useCallback(async () => {
     setMyError('')
     try {
-      const reels = await startAndWait(MY_URL, 30, setMyScrapeState)
+      const reels = await startAndWait(`https://www.instagram.com/${myUsernameRef.current}/`, myScrapeLimitRef.current, setMyScrapeState)
       const now = new Date().toISOString()
       setMyReels(reels)
       setMyLastSynced(now)
@@ -936,7 +971,7 @@ export default function Dashboard() {
             >
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-white leading-tight tracking-tight">Content Dashboard</p>
-                <p className="text-xs text-slate-500">@{MY_USERNAME}</p>
+                <p className="text-xs text-slate-500">@{myUsername}</p>
               </div>
               <div className="relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -959,19 +994,19 @@ export default function Dashboard() {
                   <img src="/profile_photo.jpg" alt="Profile" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white truncate">Content Dashboard</p>
-                    <p className="text-xs text-slate-500 truncate">@{MY_USERNAME}</p>
+                    <p className="text-xs text-slate-500 truncate">@{myUsername}</p>
                   </div>
                 </div>
                 {/* Actions */}
                 <div className="p-1.5 flex flex-col gap-0.5">
-                  <button
-                    disabled
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-500 opacity-50 cursor-not-allowed"
+                  <a
+                    href="/settings"
+                    onClick={() => setProfileOpen(false)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                   >
                     <Settings className="w-4 h-4 flex-shrink-0" />
                     <span>Settings</span>
-                    <span className="ml-auto text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full leading-none">Soon</span>
-                  </button>
+                  </a>
                   <button
                     onClick={async () => {
                       setProfileOpen(false)
@@ -1000,7 +1035,7 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-xl font-bold text-white">My Reels</h2>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-slate-500 text-sm">Last 30 days Â· @{MY_USERNAME}</p>
+                  <p className="text-slate-500 text-sm">Last 30 days Â· @{myUsername}</p>
                   {myLastSynced && (
                     <span className="flex items-center gap-1 text-xs text-slate-600">
                       <Clock className="w-3 h-3" /> {timeAgo(myLastSynced)}
@@ -1703,7 +1738,21 @@ export default function Dashboard() {
                           className="text-xs px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
                         >Cancel</button>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
+                            // Move to recycle bin before removing from history
+                            await fetch('/api/recycle-bin', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                id: `idea_${selectedIdea.id}`,
+                                type: 'idea',
+                                label: selectedIdea.promptName
+                                  ? `${selectedIdea.promptName} — ${new Date(selectedIdea.generatedAt).toLocaleDateString()}`
+                                  : `Ideas — ${new Date(selectedIdea.generatedAt).toLocaleDateString()}`,
+                                data: selectedIdea,
+                                deletedAt: new Date().toISOString(),
+                              }),
+                            })
                             setIdeasHistory((prev) => {
                               const updated = prev.filter((g) => g.id !== selectedIdea.id)
                               saveCache('content_ideas', updated)
