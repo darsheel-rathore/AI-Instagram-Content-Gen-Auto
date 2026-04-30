@@ -13,6 +13,7 @@ import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
+  Settings, LogOut,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -236,6 +237,9 @@ export default function Dashboard() {
   const [selectedCompReelIds, setSelectedCompReelIds] = useState<Record<string, Set<string>>>({})
   const [expandedReelPickers, setExpandedReelPickers] = useState<Set<string>>(new Set())
 
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
+
   const myReelsRef = useRef(myReels)
   const competitorsRef = useRef(competitors)
   const selectedCompForIdeasRef = useRef(selectedCompForIdeas)
@@ -265,6 +269,16 @@ export default function Dashboard() {
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Keep selectedCompForIdeas in sync: only prune competitors that were removed, never auto-add
   useEffect(() => {
@@ -895,19 +909,9 @@ export default function Dashboard() {
     <main className="min-h-screen bg-[#0a0f1e]">
       {/* Header */}
       <header className="border-b border-slate-800 bg-[#0a0f1e]/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/profile_photo.jpg"
-              alt="Profile"
-              className="w-8 h-8 rounded-lg object-cover"
-            />
-            <div>
-              <h1 className="text-base font-bold text-white tracking-tight">Content Dashboard</h1>
-              <p className="text-xs text-slate-500">@{MY_USERNAME}</p>
-            </div>
-          </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+
+          {/* Left: Tab navigation */}
           <nav className="flex items-center gap-1 bg-slate-800/60 rounded-xl p-1">
             {tabs.map((t) => (
               <button
@@ -923,16 +927,67 @@ export default function Dashboard() {
               </button>
             ))}
           </nav>
-          <button
-            onClick={async () => {
-              await fetch('/api/auth/logout', { method: 'POST' })
-              window.location.href = '/login'
-            }}
-            className="flex-shrink-0 text-xs text-slate-600 hover:text-slate-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-slate-800"
-            title="Sign out"
-          >
-            Sign out
-          </button>
+
+          {/* Right: Profile avatar + dropdown */}
+          <div className="relative flex-shrink-0" ref={profileRef}>
+            <button
+              onClick={() => setProfileOpen((o) => !o)}
+              className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 hover:bg-slate-800/70 transition-colors group"
+            >
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-semibold text-white leading-tight tracking-tight">Content Dashboard</p>
+                <p className="text-xs text-slate-500">@{MY_USERNAME}</p>
+              </div>
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/profile_photo.jpg"
+                  alt="Profile"
+                  className="w-9 h-9 rounded-xl object-cover ring-1 ring-slate-700 group-hover:ring-slate-500 transition-all"
+                />
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#0a0f1e]" />
+              </div>
+              <ChevronDown className={clsx('w-3.5 h-3.5 text-slate-500 transition-transform duration-200 flex-shrink-0', profileOpen && 'rotate-180')} />
+            </button>
+
+            {/* Dropdown */}
+            {profileOpen && (
+              <div className="absolute right-0 top-full mt-2 w-52 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden z-50">
+                {/* Identity */}
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800/80">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/profile_photo.jpg" alt="Profile" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">Content Dashboard</p>
+                    <p className="text-xs text-slate-500 truncate">@{MY_USERNAME}</p>
+                  </div>
+                </div>
+                {/* Actions */}
+                <div className="p-1.5 flex flex-col gap-0.5">
+                  <button
+                    disabled
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-500 opacity-50 cursor-not-allowed"
+                  >
+                    <Settings className="w-4 h-4 flex-shrink-0" />
+                    <span>Settings</span>
+                    <span className="ml-auto text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full leading-none">Soon</span>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setProfileOpen(false)
+                      await fetch('/api/auth/logout', { method: 'POST' })
+                      window.location.href = '/login'
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4 flex-shrink-0" />
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
         </div>
       </header>
 
