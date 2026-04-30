@@ -14,7 +14,7 @@ import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, FileText, BarChart2, Star,
+  Settings, LogOut, FileText, BarChart2, Star, GraduationCap,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -1105,6 +1105,9 @@ export default function Dashboard() {
     { id: 'ideas', label: 'Content Ideas', icon: <Lightbulb className="w-4 h-4" /> },
   ]
 
+  // Masterclass link rendered separately (external page)
+  const masterclassNavItem = { label: 'Masterclass', href: '/masterclass', icon: <GraduationCap className="w-4 h-4" /> }
+
   return (
     <main className="min-h-screen bg-[#0a0f1e]">
       {/* Header */}
@@ -1126,6 +1129,13 @@ export default function Dashboard() {
                 <span className="hidden sm:inline">{t.label}</span>
               </button>
             ))}
+            <a
+              href={masterclassNavItem.href}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-violet-300 hover:bg-violet-500/10 transition-all"
+            >
+              {masterclassNavItem.icon}
+              <span className="hidden sm:inline">{masterclassNavItem.label}</span>
+            </a>
           </nav>
 
           {/* Right: Profile avatar + dropdown */}
