@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   ArrowLeft, Camera, Clock, Database, Trash2,
-  Download, AlertTriangle, Check, Loader2, Shield,
+  Download, Upload, AlertTriangle, Check, Loader2, Shield,
   Info,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -80,7 +80,13 @@ export default function SettingsPage() {
   const [clearConfirm, setClearConfirm] = useState(false)
   const [emptyBinConfirm, setEmptyBinConfirm] = useState(false)
   const [clearDone, setClearDone] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importKeys, setImportKeys] = useState<string[]>([])
+  const [importError, setImportError] = useState('')
+  const [importDone, setImportDone] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const importFileRef = useRef<HTMLInputElement>(null)
 
   const envUsername = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? ''
 
@@ -151,6 +157,59 @@ export default function SettingsPage() {
     setSaving(null)
     setClearConfirm(false)
     setClearDone(true)
+  }
+
+  function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setImportError('')
+    setImportDone(false)
+    const f = e.target.files?.[0]
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string)
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          setImportError('Invalid backup file — expected a JSON object')
+          setImportFile(null)
+          return
+        }
+        setImportFile(f)
+        setImportKeys(Object.keys(parsed))
+      } catch {
+        setImportError('Could not parse file — make sure it is a valid JSON backup')
+        setImportFile(null)
+      }
+    }
+    reader.readAsText(f)
+    // Reset so the same file can be re-selected
+    e.target.value = ''
+  }
+
+  async function handleImport() {
+    if (!importFile) return
+    setImportLoading(true)
+    setImportError('')
+    try {
+      const text = await importFile.text()
+      const parsed = JSON.parse(text)
+      const res = await fetch('/api/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setImportError(err.error ?? 'Import failed')
+      } else {
+        setImportDone(true)
+        setImportFile(null)
+        setImportKeys([])
+      }
+    } catch {
+      setImportError('Failed to read or import file')
+    } finally {
+      setImportLoading(false)
+    }
   }
 
   async function emptyRecycleBin() {
@@ -434,6 +493,65 @@ export default function SettingsPage() {
                 Export
               </button>
             </Row>
+
+            {/* Import */}
+            <div className="p-5 border-t border-slate-800">
+              <div className="flex items-center gap-4">
+                <div className="flex-shrink-0">
+                  <Upload className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white">Import backup</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Restore from a JSON backup file</p>
+                  {importFile && (
+                    <p className="text-xs text-amber-400 mt-1 truncate">
+                      {importFile.name} — {importKeys.length} key{importKeys.length !== 1 ? 's' : ''}: {importKeys.slice(0, 4).join(', ')}{importKeys.length > 4 ? '…' : ''}
+                    </p>
+                  )}
+                  {importError && <p className="text-xs text-rose-400 mt-1">{importError}</p>}
+                  {importDone && (
+                    <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Imported. Reload the dashboard to see changes.
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {importFile ? (
+                    <>
+                      <button
+                        onClick={handleImport}
+                        disabled={importLoading}
+                        className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+                      >
+                        {importLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => { setImportFile(null); setImportKeys([]); setImportError('') }}
+                        className="text-xs text-slate-400 hover:text-white px-2 py-1.5 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => importFileRef.current?.click()}
+                      className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      Import
+                    </button>
+                  )}
+                </div>
+              </div>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={handleImportFileChange}
+              />
+            </div>
 
             <Row
               icon={<AlertTriangle className="w-4 h-4 text-rose-400" />}

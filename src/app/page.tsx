@@ -241,6 +241,7 @@ export default function Dashboard() {
 
   // Dynamic settings loaded from settings.json
   const [myUsername, setMyUsername] = useState(ENV_USERNAME)
+  const [displayName, setDisplayName] = useState('Content Dashboard')
   const [autoSignoutMins, setAutoSignoutMins] = useState(0)
   const myUsernameRef = useRef(ENV_USERNAME)
   const myScrapeLimitRef = useRef(30)
@@ -334,7 +335,7 @@ export default function Dashboard() {
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null }>('prompt_templates'),
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider; model?: string }>('analysis_settings'),
       loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
-      loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number }>('settings'),
+      loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number; displayName?: string }>('settings'),
     ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache]) => {
       if (settingsCache?.instagramUsername) {
         setMyUsername(settingsCache.instagramUsername)
@@ -343,6 +344,7 @@ export default function Dashboard() {
       if (settingsCache?.myReelsScrapeLimit) {
         myScrapeLimitRef.current = settingsCache.myReelsScrapeLimit
       }
+      if (settingsCache?.displayName) setDisplayName(settingsCache.displayName)
       setAutoSignoutMins(settingsCache?.autoSignoutMinutes ?? 0)
       if (myCache?.reels?.length) {
         setMyReels(myCache.reels)
@@ -970,7 +972,7 @@ export default function Dashboard() {
               className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 hover:bg-slate-800/70 transition-colors group"
             >
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-white leading-tight tracking-tight">Content Dashboard</p>
+                <p className="text-sm font-semibold text-white leading-tight tracking-tight">{displayName}</p>
                 <p className="text-xs text-slate-500">@{myUsername}</p>
               </div>
               <div className="relative">
@@ -993,7 +995,7 @@ export default function Dashboard() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src="/profile_photo.jpg" alt="Profile" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white truncate">Content Dashboard</p>
+                    <p className="text-sm font-semibold text-white truncate">{displayName}</p>
                     <p className="text-xs text-slate-500 truncate">@{myUsername}</p>
                   </div>
                 </div>
