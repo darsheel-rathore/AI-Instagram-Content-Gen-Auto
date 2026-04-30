@@ -1409,39 +1409,42 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* ── AI Provider + Model selector ── */}
-            <div className="mb-5 space-y-2">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">AI Provider:</span>
-                <div className="flex items-center gap-1.5">
+            {/* ── Generation config card ── */}
+            <div className="mb-5 bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+              {/* Row 1: Provider tabs + Model pills */}
+              <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
+                {/* Provider segmented control */}
+                <div className="flex items-center gap-0.5 bg-slate-800/70 rounded-lg p-0.5 flex-shrink-0">
                   {(['anthropic', 'openai', 'gemini'] as AIProvider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => { setSelectedProvider(p); setSelectedModel(DEFAULT_MODEL[p]) }}
                       className={clsx(
-                        'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                        'text-xs px-3 py-1.5 rounded-md font-medium transition-all',
                         selectedProvider === p
-                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                          ? 'bg-slate-700 text-white shadow-sm'
+                          : 'text-slate-500 hover:text-slate-300',
                       )}
                     >
                       {PROVIDER_LABELS[p]}
                     </button>
                   ))}
                 </div>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Model:</span>
-                <div className="flex items-center gap-1.5 flex-wrap">
+
+                <div className="w-px h-4 bg-slate-700/80 hidden sm:block flex-shrink-0" />
+
+                {/* Model pills — auto-updates when provider changes */}
+                <div className="flex items-center gap-1 flex-wrap">
                   {PROVIDER_MODELS[selectedProvider].map((m) => (
                     <button
                       key={m.id}
                       onClick={() => setSelectedModel(m.id)}
+                      title={m.description}
                       className={clsx(
-                        'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                        'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all',
                         selectedModel === m.id
-                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                          : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800',
                       )}
                     >
                       <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', COST_DOT[m.cost])} />
@@ -1449,51 +1452,49 @@ export default function Dashboard() {
                     </button>
                   ))}
                 </div>
-                <span className="text-xs text-slate-600 hidden sm:flex items-center gap-2.5">
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" />expensive</span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />moderate</span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />cheap</span>
-                </span>
               </div>
-            </div>
 
-            {/* ── Data source selector ── */}
-            <div className="mb-5 flex items-center gap-3 flex-wrap">
-              <span className="text-xs text-slate-500 font-medium flex-shrink-0">Include in context:</span>
-              <div className="flex items-center gap-1.5">
-                {(['analysis', 'transcript', 'caption'] as const).map((src) => (
-                  <button
-                    key={src}
-                    onClick={() => setIdeaDataSources((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(src)) next.delete(src)
-                      else next.add(src)
-                      return next
-                    })}
-                    className={clsx(
-                      'text-xs px-3 py-1.5 rounded-lg border transition-colors capitalize',
-                      ideaDataSources.has(src)
-                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
-                    )}
-                  >
-                    {src === 'analysis' ? 'Analysis' : src === 'transcript' ? 'Transcript' : 'Caption'}
-                  </button>
-                ))}
+              {/* Divider */}
+              <div className="h-px bg-slate-800" />
+
+              {/* Row 2: Context toggles */}
+              <div className="flex items-center gap-1 px-4 py-3 flex-wrap">
+                <span className="text-xs text-slate-600 font-medium mr-2 flex-shrink-0">Context</span>
+                {(['analysis', 'transcript', 'caption'] as const).map((src) => {
+                  const active = ideaDataSources.has(src)
+                  return (
+                    <button
+                      key={src}
+                      onClick={() => setIdeaDataSources((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(src)) next.delete(src)
+                        else next.add(src)
+                        return next
+                      })}
+                      className={clsx(
+                        'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors',
+                        active
+                          ? 'text-emerald-400 bg-emerald-500/10'
+                          : 'text-slate-500 hover:text-slate-400 hover:bg-slate-800/60',
+                      )}
+                    >
+                      <span className={clsx(
+                        'w-1.5 h-1.5 rounded-full border flex-shrink-0 transition-colors',
+                        active ? 'bg-emerald-400 border-emerald-400' : 'border-slate-600',
+                      )} />
+                      {src === 'analysis' ? 'Analysis' : src === 'transcript' ? 'Transcript' : 'Caption'}
+                    </button>
+                  )
+                })}
                 <button
                   onClick={() => setIdeaDataSources((prev) => {
                     const all = new Set(['analysis', 'transcript', 'caption'])
-                    const isAllSelected = all.size === prev.size && Array.from(all).every((s) => prev.has(s))
-                    return isAllSelected ? new Set<string>() : all
+                    const isAll = all.size === prev.size && Array.from(all).every((s) => prev.has(s))
+                    return isAll ? new Set<string>() : all
                   })}
-                  className={clsx(
-                    'text-xs px-3 py-1.5 rounded-lg border transition-colors',
-                    ideaDataSources.size === 3
-                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                      : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
-                  )}
+                  className="ml-auto text-xs text-slate-600 hover:text-slate-400 transition-colors px-1"
                 >
-                  All
+                  {ideaDataSources.size === 3 ? 'none' : 'all'}
                 </button>
               </div>
             </div>
