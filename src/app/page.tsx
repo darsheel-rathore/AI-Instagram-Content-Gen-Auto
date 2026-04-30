@@ -923,6 +923,16 @@ export default function Dashboard() {
               </button>
             ))}
           </nav>
+          <button
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' })
+              window.location.href = '/login'
+            }}
+            className="flex-shrink-0 text-xs text-slate-600 hover:text-slate-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-slate-800"
+            title="Sign out"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 
