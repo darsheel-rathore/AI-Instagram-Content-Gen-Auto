@@ -3,10 +3,9 @@
 import { useState } from 'react'
 import type { Reel } from '@/lib/types'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
-import { TrendingUp, TrendingDown, Minus, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertCircle, ChevronDown, ChevronUp, Target, Zap } from 'lucide-react'
 
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -40,7 +39,6 @@ function detectThemesTopReels(reels: Reel[]): Record<string, number> {
   return detectThemes(topReels.length > 0 ? topReels : reels)
 }
 
-// Extended palette — cycles if account count exceeds array length
 const ACCOUNT_COLORS = [
   '#f59e0b', '#8b5cf6', '#06b6d4', '#10b981',
   '#f97316', '#ec4899', '#14b8a6', '#a855f7',
@@ -49,7 +47,6 @@ const ACCOUNT_COLORS = [
 function colorFor(i: number) { return ACCOUNT_COLORS[i % ACCOUNT_COLORS.length] }
 
 const MAX_DEFAULT_COMPETITORS = 3
-const MAX_RADAR_ACCOUNTS = 5
 
 interface Props {
   myReels: Reel[]
@@ -60,7 +57,6 @@ interface Props {
 export default function ComparisonView({ myReels, competitors, myUsername = process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'me' }: Props) {
   const [showAll, setShowAll] = useState(false)
 
-  // Newest-first competitor ordering
   const allCompetitorEntries = Object.entries(competitors).reverse()
   const hasMore = allCompetitorEntries.length > MAX_DEFAULT_COMPETITORS
   const visibleEntries = showAll ? allCompetitorEntries : allCompetitorEntries.slice(0, MAX_DEFAULT_COMPETITORS)
@@ -88,49 +84,66 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
   })
 
   const meMetrics = metrics[0]
-  const chartData = metrics.map((m) => ({ name: `@${m.username}`, views: Math.round(m.avgViews), eng: parseFloat(m.avgEng.toFixed(2)), color: m.color }))
+  const chartData = metrics.map((m) => ({
+    name: `@${m.username}`,
+    views: Math.round(m.avgViews),
+    color: m.color,
+  }))
 
   // ─── Theme analysis ──────────────────────────────────────────────────────────
-  const themeScores = metrics.map((m) => ({ username: m.username, themes: detectThemesTopReels(m.reels), isMe: m.isMe, color: m.color }))
-  const allThemes = Object.keys(THEME_KEYWORDS)
+  // Absolute keyword mention counts from top-performing reels only
+  const accountThemes = metrics.map((m) => ({
+    username: m.username,
+    isMe: m.isMe,
+    color: m.color,
+    themes: detectThemesTopReels(m.reels),
+  }))
 
-  // Radar: cap at MAX_RADAR_ACCOUNTS to stay readable
-  const radarAccounts = themeScores.slice(0, MAX_RADAR_ACCOUNTS)
-  const radarTruncated = themeScores.length > MAX_RADAR_ACCOUNTS
+  // Build theme rows sorted by total mentions across all accounts, drop zero-signal themes
+  const themeRows = Object.keys(THEME_KEYWORDS)
+    .map((theme) => {
+      const scores = accountThemes.map((a) => ({ username: a.username, score: a.themes[theme] ?? 0, color: a.color, isMe: a.isMe }))
+      const total = scores.reduce((s, x) => s + x.score, 0)
+      return { theme, scores, total }
+    })
+    .filter((r) => r.total > 0)
+    .sort((a, b) => b.total - a.total)
 
-  const maxByTheme: Record<string, number> = {}
-  for (const theme of allThemes) {
-    maxByTheme[theme] = Math.max(1, ...radarAccounts.map((t) => t.themes[theme] ?? 0))
-  }
-  const radarData = allThemes.map((theme) => {
+  // Flat data for the grouped bar chart (one row = one theme, one Bar series = one account)
+  const themeChartData = themeRows.slice(0, 7).map(({ theme, scores }) => {
     const row: Record<string, string | number> = { theme }
-    for (const ts of radarAccounts) {
-      row[ts.username] = Math.round(((ts.themes[theme] ?? 0) / maxByTheme[theme]) * 100)
-    }
+    for (const s of scores) row[s.username] = s.score
     return row
   })
 
-  // ─── Gaps ───────────────────────────────────────────────────────────────────
-  const myThemes = themeScores[0].themes
+  // ─── Strengths & Gaps ───────────────────────────────────────────────────────
+  const myThemes = accountThemes[0].themes
   const competitorThemes: Record<string, number> = {}
-  for (const ts of themeScores.slice(1)) {
-    for (const [theme, score] of Object.entries(ts.themes)) {
+  for (const a of accountThemes.slice(1)) {
+    for (const [theme, score] of Object.entries(a.themes)) {
       competitorThemes[theme] = (competitorThemes[theme] ?? 0) + score
     }
   }
+  const numCompetitors = accountThemes.length - 1
 
-  const gaps = allThemes
-    .filter((t) => competitorThemes[t] > 5 && (myThemes[t] ?? 0) < competitorThemes[t] * 0.4)
-    .sort((a, b) => competitorThemes[b] - competitorThemes[a])
+  // Strengths: themes where YOU have the most content
+  const strengths = Object.keys(THEME_KEYWORDS)
+    .filter((t) => (myThemes[t] ?? 0) > 0)
+    .sort((a, b) => (myThemes[b] ?? 0) - (myThemes[a] ?? 0))
     .slice(0, 4)
 
-  const strengths = allThemes
-    .filter((t) => (myThemes[t] ?? 0) > 3)
-    .sort((a, b) => (myThemes[b] ?? 0) - (myThemes[a] ?? 0))
+  // Gaps: themes competitors cover heavily but you don't
+  const gaps = Object.keys(THEME_KEYWORDS)
+    .filter((t) => {
+      const compAvg = numCompetitors > 0 ? (competitorThemes[t] ?? 0) / numCompetitors : 0
+      return compAvg > 3 && (myThemes[t] ?? 0) < compAvg * 0.5
+    })
+    .sort((a, b) => (competitorThemes[b] ?? 0) - (competitorThemes[a] ?? 0))
     .slice(0, 4)
 
   return (
     <div className="space-y-6">
+
       {/* ── Show all toggle ── */}
       {hasMore && (
         <div className="flex items-center justify-between bg-slate-800/40 border border-slate-700/60 rounded-xl px-4 py-3">
@@ -141,16 +154,14 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
             onClick={() => setShowAll((v) => !v)}
             className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors font-medium"
           >
-            {showAll ? (
-              <><ChevronUp className="w-3.5 h-3.5" /> Show fewer</>
-            ) : (
-              <><ChevronDown className="w-3.5 h-3.5" /> Show all {allCompetitorEntries.length} creators</>
-            )}
+            {showAll
+              ? <><ChevronUp className="w-3.5 h-3.5" /> Show fewer</>
+              : <><ChevronDown className="w-3.5 h-3.5" /> Show all {allCompetitorEntries.length} creators</>}
           </button>
         </div>
       )}
 
-      {/* ── Stat cards — max 4 columns, wraps on overflow ── */}
+      {/* ── Stat cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
         {metrics.map((m, i) => (
           <div key={m.username} className="rounded-xl border border-slate-700/60 bg-slate-800/60 p-4">
@@ -185,96 +196,167 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
         ))}
       </div>
 
-      {/* ── Avg views bar chart ── */}
+      {/* ── Avg views bar chart (fixed: one Bar + Cell per account) ── */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/60 p-5">
-        <h3 className="text-sm font-semibold text-slate-300 mb-4">Avg Views Comparison</h3>
-        <ResponsiveContainer width="100%" height={Math.max(180, metrics.length * 36)}>
+        <h3 className="text-sm font-semibold text-slate-300 mb-1">Avg Views per Reel</h3>
+        <p className="text-xs text-slate-500 mb-4">Average views across all reels for each account</p>
+        <ResponsiveContainer width="100%" height={Math.max(160, metrics.length * 44)}>
           <BarChart data={chartData} layout="vertical" barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
             <XAxis type="number" tickFormatter={fmt} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
             <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={140} />
-            <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
-            {chartData.map((entry, i) => (
-              <Bar key={entry.name} dataKey="views" data={[entry]} radius={[0, 4, 4, 0]} maxBarSize={24} fill={colorFor(i)} />
-            ))}
+            <Tooltip
+              formatter={(v: number) => [fmt(v), 'Avg Views']}
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: '#f1f5f9', fontWeight: 600, marginBottom: 2 }}
+              itemStyle={{ color: '#94a3b8' }}
+              cursor={{ fill: 'rgba(148,163,184,0.06)' }}
+            />
+            <Bar dataKey="views" radius={[0, 4, 4, 0]} maxBarSize={28}>
+              {chartData.map((entry, i) => (
+                <Cell key={entry.name} fill={colorFor(i)} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* ── Radar / theme comparison ── */}
+      {/* ── Content theme breakdown — grouped bar chart ── */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/60 p-5">
-        <div className="flex items-start justify-between mb-1">
-          <h3 className="text-sm font-semibold text-slate-300">Content Theme Comparison</h3>
-          {radarTruncated && (
-            <span className="text-xs text-slate-500">Top {MAX_RADAR_ACCOUNTS} accounts shown</span>
-          )}
-        </div>
-        <p className="text-xs text-slate-500 mb-4">Based on top-performing reels per account</p>
-        <ResponsiveContainer width="100%" height={300}>
-          <RadarChart data={radarData}>
-            <PolarGrid stroke="#1e293b" />
-            <PolarAngleAxis dataKey="theme" tick={{ fontSize: 11, fill: '#64748b' }} />
-            {radarAccounts.map((ts) => (
-              <Radar
-                key={ts.username}
-                name={`@${ts.username}`}
-                dataKey={ts.username}
-                stroke={ts.color}
-                fill={ts.color}
-                fillOpacity={0.1}
-              />
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-300">Content Theme Breakdown</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Keyword mentions in captions + transcripts of each account&apos;s top-performing reels
+            </p>
+          </div>
+          {/* Legend */}
+          <div className="flex flex-wrap gap-3">
+            {accountThemes.map((a, i) => (
+              <div key={a.username} className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: colorFor(i) }} />
+                <span className="text-xs text-slate-400">@{a.username}{a.isMe ? ' (you)' : ''}</span>
+              </div>
             ))}
-            <Legend formatter={(v) => <span className="text-xs text-slate-400">{v}</span>} />
-          </RadarChart>
-        </ResponsiveContainer>
+          </div>
+        </div>
+
+        {themeChartData.length === 0 ? (
+          <p className="text-xs text-slate-500 italic mt-4">
+            No theme signals detected — works best when reels have English captions or transcripts.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(200, themeChartData.length * 52)}>
+            <BarChart data={themeChartData} layout="vertical" barGap={2} barCategoryGap="32%" margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fontSize: 10, fill: '#64748b' }}
+                axisLine={false}
+                tickLine={false}
+                allowDecimals={false}
+              />
+              <YAxis
+                type="category"
+                dataKey="theme"
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                axisLine={false}
+                tickLine={false}
+                width={115}
+              />
+              <Tooltip
+                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                formatter={(value: number, name: string) => [`${value} mention${value !== 1 ? 's' : ''}`, `@${name}`]}
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+              />
+              {accountThemes.map((a, i) => (
+                <Bar key={a.username} dataKey={a.username} name={a.username} fill={colorFor(i)} radius={[0, 3, 3, 0]} maxBarSize={13} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* ── Strengths & Gaps ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* Strengths */}
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-          <h3 className="text-sm font-semibold text-emerald-300 mb-3 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4" /> Your Strengths
-          </h3>
+          <div className="flex items-center gap-2 mb-1">
+            <Zap className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <h3 className="text-sm font-semibold text-emerald-300">What you post most about</h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">
+            Topics that appear most in <span className="text-slate-400">your</span> top-performing reels. These are your niche pillars.
+          </p>
           {strengths.length > 0 ? (
-            <div className="space-y-2">
-              {strengths.map((t) => (
-                <div key={t} className="flex items-center justify-between">
-                  <span className="text-sm text-slate-300">{t}</span>
-                  <div className="flex items-center gap-1">
-                    <div className="h-1.5 rounded-full bg-emerald-500/40" style={{ width: `${Math.min(80, (myThemes[t] / 10) * 80)}px` }} />
-                    <span className="text-xs text-slate-500">{myThemes[t]} signals</span>
+            <div className="space-y-3">
+              {strengths.map((t, i) => {
+                const score = myThemes[t] ?? 0
+                const maxScore = myThemes[strengths[0]] ?? 1
+                return (
+                  <div key={t}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-slate-300 font-medium">{t}</span>
+                      <span className="text-xs text-slate-500">{score} mentions</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-700/40 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500/60 rounded-full"
+                        style={{ width: `${(score / maxScore) * 100}%` }}
+                      />
+                    </div>
+                    {i === 0 && <p className="text-xs text-emerald-600 mt-0.5">Your strongest theme</p>}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
-            <p className="text-xs text-slate-500">Fetch your reels to analyze strengths.</p>
+            <p className="text-xs text-slate-500 italic">No theme signals found. Add captions or transcripts to your reels for this to work.</p>
           )}
         </div>
 
+        {/* Gaps */}
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4">
-          <h3 className="text-sm font-semibold text-rose-300 mb-3 flex items-center gap-2">
-            <Minus className="w-4 h-4" /> Content Gaps (competitors win here)
-          </h3>
+          <div className="flex items-center gap-2 mb-1">
+            <Target className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <h3 className="text-sm font-semibold text-rose-300">Topics competitors win that you don&apos;t cover</h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">
+            Themes where competitors post heavily but your reels rarely touch. These are content opportunities.
+          </p>
           {gaps.length > 0 ? (
-            <div className="space-y-2">
-              {gaps.map((t) => (
-                <div key={t} className="flex items-center justify-between">
-                  <span className="text-sm text-slate-300">{t}</span>
-                  <div className="flex items-center gap-1">
-                    <div className="h-1.5 rounded-full bg-rose-500/40" style={{ width: `${Math.min(80, (competitorThemes[t] / 20) * 80)}px` }} />
-                    <span className="text-xs text-slate-500">{competitorThemes[t]} signals</span>
+            <div className="space-y-3">
+              {gaps.map((t) => {
+                const compAvg = numCompetitors > 0 ? Math.round((competitorThemes[t] ?? 0) / numCompetitors) : 0
+                const mine = myThemes[t] ?? 0
+                return (
+                  <div key={t}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-slate-300 font-medium">{t}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-rose-500/60 flex-shrink-0" />
+                        <span className="text-slate-400">Competitors avg: <span className="text-rose-300 font-medium">{compAvg} mentions</span></span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-slate-600 flex-shrink-0" />
+                        <span className="text-slate-400">You: <span className="text-slate-300 font-medium">{mine}</span></span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
-            <p className="text-xs text-slate-500">No significant gaps detected.</p>
+            <p className="text-xs text-slate-500 italic">No significant gaps detected — you&apos;re keeping up across all topics competitors cover.</p>
           )}
         </div>
+
       </div>
 
-      {/* ── Top reels comparison ── */}
+      {/* ── Top reel per account ── */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/60 overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-700/60">
           <h3 className="text-sm font-semibold text-slate-300">Top Reel per Account</h3>
@@ -299,6 +381,7 @@ export default function ComparisonView({ myReels, competitors, myUsername = proc
           ))}
         </div>
       </div>
+
     </div>
   )
 }
