@@ -414,16 +414,18 @@ export default function MasterclassTab() {
           </h2>
           <p className="text-slate-500 text-sm mt-0.5">Plan, launch, and track your masterclasses</p>
         </div>
-        <button
-          onClick={() => {
-            setActiveTab('create'); setTitle(''); setEventDate(''); setDescription('')
-            setTargetAudience(''); setKeyTopics(''); setPrice(''); setPptPrompt('')
-            setGeneratedSlides(null); setGeneratedStrategy(null); setSaveError(''); setPptError(''); setStrategyError('')
-          }}
-          className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 transition-colors font-medium"
-        >
-          <Plus className="w-4 h-4" /> New Masterclass
-        </button>
+        {activeTab !== 'create' && (
+          <button
+            onClick={() => {
+              setActiveTab('create'); setTitle(''); setEventDate(''); setDescription('')
+              setTargetAudience(''); setKeyTopics(''); setPrice(''); setPptPrompt('')
+              setGeneratedSlides(null); setGeneratedStrategy(null); setSaveError(''); setPptError(''); setStrategyError('')
+            }}
+            className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 transition-colors font-medium"
+          >
+            <Plus className="w-4 h-4" /> New Masterclass
+          </button>
+        )}
       </div>
 
       {/* Sub-tabs */}
@@ -454,7 +456,7 @@ export default function MasterclassTab() {
 
       {/* ══════════════════ CREATE ══════════════════ */}
       {!loading && activeTab === 'create' && (
-        <div className="space-y-8 max-w-3xl">
+        <div className="space-y-8">
 
           {/* Event Details */}
           <section>
