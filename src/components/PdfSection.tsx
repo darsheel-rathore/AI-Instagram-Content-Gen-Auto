@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ChevronDown, ChevronUp, FileText, Check, Trash2, Eye } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { ChevronDown, ChevronUp, FileText, Check, Trash2, Eye, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import PromptFactory, { type PromptTemplate } from './PromptFactory'
 import { PDF_TEMPLATES, type PdfTemplateDefinition } from '@/lib/pdf-templates'
@@ -44,6 +44,8 @@ const COST_DOT: Record<ModelCost, string> = {
   cheap: 'bg-emerald-500',
 }
 
+const GIVEAWAY_BASE = PDF_TEMPLATES.find((t) => t.id === 'giveaway')!
+
 interface Props {
   selectedDesign: string
   onDesignChange: (id: string) => void
@@ -72,18 +74,19 @@ export default function PdfSection({
   onPromptDelete,
 }: Props) {
   const [open, setOpen] = useState(false)
-  const [customTemplates, setCustomTemplates] = useState<PdfTemplateDefinition[]>([])
+  const [cssTemplates, setCssTemplates] = useState<PdfTemplateDefinition[]>([])
   const [giveawayBrand, setGiveawayBrand] = useState('Medha')
   const [giveawayHandle, setGiveawayHandle] = useState('themedhachannel')
+  const cssImportRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('pdf_custom_templates')
-      if (saved) setCustomTemplates(JSON.parse(saved) as PdfTemplateDefinition[])
       const brand = localStorage.getItem('pdf_giveaway_brand')
       const handle = localStorage.getItem('pdf_giveaway_handle')
       if (brand) setGiveawayBrand(brand)
       if (handle) setGiveawayHandle(handle)
+      const saved = localStorage.getItem('pdf_css_templates')
+      if (saved) setCssTemplates(JSON.parse(saved) as PdfTemplateDefinition[])
     } catch { /* ignore */ }
   }, [])
 
@@ -98,20 +101,59 @@ export default function PdfSection({
   }
 
   const htmlBuiltIns = PDF_TEMPLATES.filter((t) => t.htmlTemplate)
-  const allTemplates = [...htmlBuiltIns, ...customTemplates]
-  const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? htmlBuiltIns[0] ?? PDF_TEMPLATES[0]
+  const allTemplates = [...htmlBuiltIns, ...cssTemplates]
+  const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? htmlBuiltIns[0]
+
+  // Sync the active template's customCss to localStorage so page.tsx can read it
+  function selectTemplate(id: string) {
+    onDesignChange(id)
+    const tmpl = allTemplates.find((t) => t.id === id)
+    const css = tmpl?.customCss ?? null
+    if (css) {
+      localStorage.setItem('pdf_giveaway_custom_css', css)
+    } else {
+      localStorage.removeItem('pdf_giveaway_custom_css')
+    }
+  }
+
+  function handleCssImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const css = ev.target?.result as string
+      const rawName = file.name.replace(/\.css$/i, '')
+      const name = rawName.length > 22 ? rawName.slice(0, 22) + '…' : rawName
+      const newTmpl: PdfTemplateDefinition = {
+        id: `pdf_css_${Date.now()}`,
+        name,
+        description: 'Custom CSS style',
+        colors: { ...GIVEAWAY_BASE.colors },
+        htmlTemplate: true,
+        customCss: css,
+      }
+      const updated = [...cssTemplates, newTmpl]
+      setCssTemplates(updated)
+      localStorage.setItem('pdf_css_templates', JSON.stringify(updated))
+      selectTemplate(newTmpl.id)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  function deleteCssTemplate(id: string) {
+    const updated = cssTemplates.filter((t) => t.id !== id)
+    setCssTemplates(updated)
+    localStorage.setItem('pdf_css_templates', JSON.stringify(updated))
+    if (selectedDesign === id) selectTemplate('giveaway')
+  }
 
   function openPreview(e: React.MouseEvent) {
     e.stopPropagation()
+    const css = currentTemplate.customCss
     const params = new URLSearchParams({ brand: giveawayBrand, handle: giveawayHandle })
+    if (css) params.set('css', css)
     window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
-  }
-
-  function handleDeleteTemplate(id: string) {
-    const updated = customTemplates.filter((t) => t.id !== id)
-    setCustomTemplates(updated)
-    localStorage.setItem('pdf_custom_templates', JSON.stringify(updated))
-    if (selectedDesign === id) onDesignChange(PDF_TEMPLATES[0].id)
   }
 
   return (
@@ -144,17 +186,35 @@ export default function PdfSection({
 
           {/* Template picker */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Design Template</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Design Template</p>
+              <div className="flex items-center gap-3">
+                <a
+                  href="/pdf-template-example.css"
+                  download="pdf-template-example.css"
+                  className="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                >
+                  Download example
+                </a>
+                <button
+                  onClick={() => cssImportRef.current?.click()}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Upload className="w-3 h-3" /> Import CSS style
+                </button>
+              </div>
+              <input ref={cssImportRef} type="file" accept=".css" className="hidden" onChange={handleCssImport} />
+            </div>
 
             {/* Template grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 lg:grid-cols-5">
               {allTemplates.map((tmpl) => {
                 const isSelected = selectedDesign === tmpl.id
-                const isCustom = !PDF_TEMPLATES.some((b) => b.id === tmpl.id)
+                const isCssVariant = cssTemplates.some((c) => c.id === tmpl.id)
                 return (
                   <div key={tmpl.id} className="relative">
                     <button
-                      onClick={() => onDesignChange(tmpl.id)}
+                      onClick={() => selectTemplate(tmpl.id)}
                       className={clsx(
                         'w-full relative rounded-xl border overflow-hidden text-left transition-all',
                         isSelected
@@ -162,7 +222,7 @@ export default function PdfSection({
                           : 'border-slate-700/60 hover:border-slate-600',
                       )}
                     >
-                      {/* Template visual preview */}
+                      {/* Template visual */}
                       <div className="w-full" style={{ aspectRatio: '3/4', background: tmpl.colors.bg }}>
                         <div
                           className="w-full"
@@ -192,7 +252,7 @@ export default function PdfSection({
                       >
                         <p className="text-xs font-semibold text-slate-200 truncate">{tmpl.name}</p>
                         <p className="text-xs text-slate-500 truncate leading-tight">
-                          {isCustom ? 'Custom' : tmpl.htmlTemplate ? 'HTML · Premium' : tmpl.description}
+                          {isCssVariant ? 'Custom CSS' : 'HTML · Premium'}
                         </p>
                       </div>
 
@@ -204,7 +264,7 @@ export default function PdfSection({
                       )}
                     </button>
 
-                    {/* Preview button — HTML templates only */}
+                    {/* Preview button — all HTML templates */}
                     {tmpl.htmlTemplate && (
                       <button
                         onClick={openPreview}
@@ -215,12 +275,12 @@ export default function PdfSection({
                       </button>
                     )}
 
-                    {/* Delete button — custom templates only */}
-                    {isCustom && (
+                    {/* Delete — CSS variant templates only */}
+                    {isCssVariant && (
                       <button
-                        onClick={() => handleDeleteTemplate(tmpl.id)}
+                        onClick={() => deleteCssTemplate(tmpl.id)}
                         className="absolute top-1 left-1 w-5 h-5 rounded-full bg-slate-900/80 flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors z-10"
-                        title="Delete template"
+                        title="Remove style"
                       >
                         <Trash2 className="w-2.5 h-2.5" />
                       </button>
@@ -231,7 +291,7 @@ export default function PdfSection({
             </div>
 
             {/* Giveaway brand config */}
-            {selectedDesign === 'giveaway' && (
+            {(selectedDesign === 'giveaway' || cssTemplates.some((t) => t.id === selectedDesign)) && (
               <div className="mt-3 rounded-xl border border-amber-700/30 bg-amber-500/5 p-3 space-y-2">
                 <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-wider">Brand Config</p>
                 <div className="grid grid-cols-2 gap-2">

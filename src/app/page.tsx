@@ -900,10 +900,11 @@ export default function Dashboard() {
       if (isGiveaway) {
         const brandName = localStorage.getItem('pdf_giveaway_brand') ?? 'Medha'
         const instagramHandle = localStorage.getItem('pdf_giveaway_handle') ?? 'themedhachannel'
+        const customCss = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
         const pdfRes = await fetch('/api/generate-pdf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: data, brandName, instagramHandle }),
+          body: JSON.stringify({ content: data, brandName, instagramHandle, customCss }),
         })
         if (!pdfRes.ok) {
           const err = await pdfRes.json().catch(() => ({}))

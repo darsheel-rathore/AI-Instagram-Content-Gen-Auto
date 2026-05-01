@@ -26,6 +26,7 @@ export function buildGiveawayHtml(
   qrCodeDataUrl: string,
   brandName: string,
   instagramHandle: string,
+  customCss?: string,
 ): string {
   const { title, subtitle, intro, sections = [], reflectionQuestions = [], closingNote, ctaText } = content
 
@@ -335,6 +336,7 @@ export function buildGiveawayHtml(
       height: 64px;
     }
   </style>
+  ${customCss ? `<style>\n${customCss}\n</style>` : ''}
 </head>
 <body>
 

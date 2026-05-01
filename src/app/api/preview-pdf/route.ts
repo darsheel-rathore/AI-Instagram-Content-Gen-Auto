@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const brand = searchParams.get('brand')?.trim() || 'Medha'
   const handle = searchParams.get('handle')?.trim().replace(/^@/, '') || 'themedhachannel'
+  const customCss = searchParams.get('css') || undefined
 
   const qrDataUrl = await QRCode.toDataURL(`https://instagram.com/${handle}`, {
     width: 128,
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
     color: { dark: '#0f1729', light: '#ffffff' },
   })
 
-  const html = buildGiveawayHtml(PREVIEW_CONTENT, qrDataUrl, brand, handle)
+  const html = buildGiveawayHtml(PREVIEW_CONTENT, qrDataUrl, brand, handle, customCss)
 
   // Inject a thin preview banner at the top
   const withBanner = html.replace(

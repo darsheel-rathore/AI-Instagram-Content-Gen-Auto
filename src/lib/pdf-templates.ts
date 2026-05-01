@@ -16,6 +16,8 @@ export interface PdfTemplateDefinition {
   colors: { header: string; accent: string; bg: string; text: string }
   /** When true, this template uses HTML/puppeteer rendering instead of jsPDF */
   htmlTemplate?: boolean
+  /** Custom CSS injected after the base styles (HTML templates only) */
+  customCss?: string
 }
 
 export const PDF_TEMPLATES: PdfTemplateDefinition[] = [

@@ -1,0 +1,205 @@
+/*
+  PDF Template Reference — Warm Parchment Style
+  ================================================
+  This file is a working example template AND a reference for creating new ones.
+  Import via "Import CSS style" inside the PDF Export panel.
+
+  You can share this file with any AI and say:
+  "Create a new PDF template CSS in this exact format with [your style description].
+   Keep all the same class names, only change the values."
+
+  ── AVAILABLE CLASSES ─────────────────────────────────────────────────────────
+
+  body                  Page background colour and base font
+
+  .watermark            Diagonal text repeated across all pages (position: fixed)
+                        → change `color` to adjust opacity/tint
+
+  .header               Top header band
+  .header-name          Brand name inside the header
+  .header-handle        @instagram handle inside the header
+  .header-divider       Thin decorative line below the brand name
+
+  .title-block          Wrapper around the main title + subtitle
+  .main-title           Main document title text
+  .main-subtitle        Subtitle / description text
+
+  .intro                Intro paragraph wrapper (first block of body text)
+  .intro p              Intro paragraph text
+
+  .content              Wrapper around all content sections
+  .section              A single content section (flex row: number + body)
+  .section-num          The numbered circle (e.g. "1", "2", "3")
+  .section-body         Content column next to the number
+  .section-heading      Section heading text
+  .section-text         Section body paragraph text
+
+  .insight-box          Highlighted insight / quote block
+  .insight-box span     Text inside the insight box
+
+  .reflection           Reflection-questions section wrapper
+  .reflection-title     "Reflection Questions" heading
+  .question             A single question row (flex: number + text)
+  .question-num         Question number (e.g. "1.")
+  .question-text        Question text
+
+  .closing              Closing note wrapper
+  .closing p            Closing note text
+
+  .cta                  Call-to-action box
+  .cta p                CTA text inside the box
+
+  .footer               Bottom footer bar
+  .footer-left          Left column of the footer
+  .footer-handle        @handle text in the footer
+  .footer-tagline       Small tagline text in the footer
+  .footer-qr            QR code image (width / height)
+
+  ──────────────────────────────────────────────────────────────────────────────
+*/
+
+/* ══ Warm Parchment Theme ══════════════════════════════════════════════════ */
+
+body {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  background: #fdf8f0;
+  color: #3d2b1f;
+}
+
+.watermark {
+  color: rgba(139, 90, 43, 0.05);
+}
+
+/* ── Header ── */
+.header {
+  background: #4a2c17;
+  padding: 28px 60px 22px;
+}
+
+.header-name {
+  font-size: 22px;
+  color: #f5e6c8;
+  letter-spacing: 0.05em;
+}
+
+.header-handle {
+  color: #d4a96a;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+}
+
+.header-divider {
+  height: 1px;
+  margin-top: 16px;
+  background: linear-gradient(to right, #d4a96a 0%, rgba(212, 169, 106, 0.1) 100%);
+}
+
+/* ── Title block ── */
+.title-block {
+  background: #fdf8f0;
+  border-bottom: 1px solid rgba(212, 169, 106, 0.25);
+  padding: 40px 60px 32px;
+}
+
+.main-title {
+  font-size: 30px;
+  color: #4a2c17;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.main-subtitle {
+  color: #7a5c44;
+  font-size: 13.5px;
+}
+
+/* ── Intro ── */
+.intro {
+  background: #fdf3e3;
+  border-bottom: 1px solid #f0e0c0;
+}
+
+.intro p {
+  color: #5c3d26;
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+/* ── Sections ── */
+.section-num {
+  border-color: #d4a96a;
+  color: #d4a96a;
+}
+
+.section-heading {
+  color: #4a2c17;
+  font-size: 17px;
+}
+
+.section-text {
+  color: #5c3d26;
+  line-height: 1.9;
+}
+
+/* ── Insight box ── */
+.insight-box {
+  background: #4a2c17;
+  border-left-color: #d4a96a;
+}
+
+.insight-box span {
+  color: #f5e6c8;
+}
+
+/* ── Reflection questions ── */
+.reflection {
+  background: #fdf3e3;
+  border-top: 1px solid #f0e0c0;
+}
+
+.reflection-title {
+  color: #4a2c17;
+  border-bottom-color: rgba(212, 169, 106, 0.4);
+}
+
+.question-num {
+  color: #d4a96a;
+}
+
+.question-text {
+  color: #5c3d26;
+}
+
+/* ── Closing ── */
+.closing {
+  background: #fdf8f0;
+}
+
+.closing p {
+  color: #7a5c44;
+}
+
+/* ── CTA ── */
+.cta {
+  background: #4a2c17;
+}
+
+.cta p {
+  color: #d4a96a;
+}
+
+/* ── Footer ── */
+.footer {
+  border-top: 2px solid #d4a96a;
+  background: #fdf8f0;
+}
+
+.footer-handle {
+  color: #d4a96a;
+  letter-spacing: 0.1em;
+}
+
+.footer-tagline {
+  color: #a07850;
+}
