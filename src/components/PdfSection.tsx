@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronUp, FileText, Check, Upload, Trash2, X, Eye } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { ChevronDown, ChevronUp, FileText, Check, Trash2, Eye } from 'lucide-react'
 import clsx from 'clsx'
 import PromptFactory, { type PromptTemplate } from './PromptFactory'
 import { PDF_TEMPLATES, type PdfTemplateDefinition } from '@/lib/pdf-templates'
@@ -44,13 +44,6 @@ const COST_DOT: Record<ModelCost, string> = {
   cheap: 'bg-emerald-500',
 }
 
-const PDF_ONLINE_LINKS = [
-  { name: 'Coolors',       url: 'https://coolors.co',                                        note: 'Color palette generator'       },
-  { name: 'Adobe Color',   url: 'https://color.adobe.com/themes',                            note: 'Professional color themes'     },
-  { name: 'Canva Colors',  url: 'https://www.canva.com/colors/color-palette-generator/',     note: 'Color palette inspiration'     },
-  { name: 'Muzli Colors',  url: 'https://colors.muz.li',                                     note: 'Designer color combinations'   },
-]
-
 interface Props {
   selectedDesign: string
   onDesignChange: (id: string) => void
@@ -80,10 +73,8 @@ export default function PdfSection({
 }: Props) {
   const [open, setOpen] = useState(false)
   const [customTemplates, setCustomTemplates] = useState<PdfTemplateDefinition[]>([])
-  const [showBrowsePanel, setShowBrowsePanel] = useState(false)
   const [giveawayBrand, setGiveawayBrand] = useState('Medha')
   const [giveawayHandle, setGiveawayHandle] = useState('themedhachannel')
-  const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     try {
@@ -110,34 +101,10 @@ export default function PdfSection({
   const allTemplates = [...htmlBuiltIns, ...customTemplates]
   const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? htmlBuiltIns[0] ?? PDF_TEMPLATES[0]
 
-  function openPreview() {
+  function openPreview(e: React.MouseEvent) {
+    e.stopPropagation()
     const params = new URLSearchParams({ brand: giveawayBrand, handle: giveawayHandle })
     window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
-  }
-
-  function handleImportTemplate(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const json = JSON.parse(ev.target?.result as string) as PdfTemplateDefinition
-        if (!json.name || !json.colors?.header || !json.colors?.bg) throw new Error()
-        const t: PdfTemplateDefinition = {
-          ...json,
-          id: `pdf_custom_${Date.now()}`,
-          description: json.description ?? 'Custom template',
-        }
-        const updated = [...customTemplates, t]
-        setCustomTemplates(updated)
-        localStorage.setItem('pdf_custom_templates', JSON.stringify(updated))
-        onDesignChange(t.id)
-      } catch {
-        alert('Invalid template JSON. Export a built-in template first to see the required format.')
-      }
-    }
-    reader.readAsText(file)
-    e.target.value = ''
   }
 
   function handleDeleteTemplate(id: string) {
@@ -146,7 +113,6 @@ export default function PdfSection({
     localStorage.setItem('pdf_custom_templates', JSON.stringify(updated))
     if (selectedDesign === id) onDesignChange(PDF_TEMPLATES[0].id)
   }
-
 
   return (
     <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
@@ -178,56 +144,7 @@ export default function PdfSection({
 
           {/* Template picker */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Design Template</p>
-
-            {/* Action row */}
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs text-slate-700">{allTemplates.length} templates</span>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowBrowsePanel((v) => !v)}
-                  className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
-                >
-                  Browse Online
-                </button>
-                <button
-                  onClick={() => importRef.current?.click()}
-                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
-                >
-                  <Upload className="w-3 h-3" /> Import JSON
-                </button>
-                <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportTemplate} />
-              </div>
-            </div>
-
-            {/* Browse Online panel */}
-            {showBrowsePanel && (
-              <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-white">Color & Design Inspiration</span>
-                  <button onClick={() => setShowBrowsePanel(false)}>
-                    <X className="w-4 h-4 text-slate-500 hover:text-white transition-colors" />
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 mb-3">
-                  Pick a color palette, export a built-in template as JSON, update the hex colors, then import it back.
-                </p>
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  {PDF_ONLINE_LINKS.map((link) => (
-                    <a
-                      key={link.name}
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg border border-slate-700/60 bg-slate-800/40 px-3 py-2 hover:border-violet-500/40 transition-colors"
-                    >
-                      <p className="text-xs font-medium text-violet-300">{link.name} ↗</p>
-                      <p className="text-xs text-slate-600 mt-0.5">{link.note}</p>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Design Template</p>
 
             {/* Template grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 lg:grid-cols-5">
@@ -287,6 +204,17 @@ export default function PdfSection({
                       )}
                     </button>
 
+                    {/* Preview button — HTML templates only */}
+                    {tmpl.htmlTemplate && (
+                      <button
+                        onClick={openPreview}
+                        title="Preview PDF"
+                        className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-500/60 text-amber-300 hover:bg-amber-500/50 transition-colors z-10"
+                      >
+                        <Eye className="w-2.5 h-2.5" /> Preview
+                      </button>
+                    )}
+
                     {/* Delete button — custom templates only */}
                     {isCustom && (
                       <button
@@ -331,15 +259,7 @@ export default function PdfSection({
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-between pt-1">
-                  <p className="text-xs text-slate-600">Appears in the header, footer, watermark, and QR code.</p>
-                  <button
-                    onClick={openPreview}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-amber-600/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors flex-shrink-0"
-                  >
-                    <Eye className="w-3 h-3" /> Preview PDF
-                  </button>
-                </div>
+                <p className="text-xs text-slate-600 pt-1">Appears in the header, footer, watermark, and QR code.</p>
               </div>
             )}
           </div>
