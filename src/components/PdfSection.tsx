@@ -142,17 +142,18 @@ export default function PdfSection({
   }
 
   function deleteCssTemplate(id: string) {
+    const tmpl = cssTemplates.find((t) => t.id === id)
+    if (!window.confirm(`Delete "${tmpl?.name ?? 'this template'}"? This cannot be undone.`)) return
     const updated = cssTemplates.filter((t) => t.id !== id)
     setCssTemplates(updated)
     localStorage.setItem('pdf_css_templates', JSON.stringify(updated))
     if (selectedDesign === id) selectTemplate('giveaway')
   }
 
-  function openPreview(e: React.MouseEvent) {
+  function openPreview(e: React.MouseEvent, tmpl: PdfTemplateDefinition) {
     e.stopPropagation()
-    const css = currentTemplate.customCss
     const params = new URLSearchParams({ brand: giveawayBrand, handle: giveawayHandle })
-    if (css) params.set('css', css)
+    if (tmpl.customCss) params.set('css', tmpl.customCss)
     window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
   }
 
@@ -267,7 +268,7 @@ export default function PdfSection({
                     {/* Preview button — all HTML templates */}
                     {tmpl.htmlTemplate && (
                       <button
-                        onClick={openPreview}
+                        onClick={(e) => openPreview(e, tmpl)}
                         title="Preview PDF"
                         className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-500/60 text-amber-300 hover:bg-amber-500/50 transition-colors z-10"
                       >
@@ -279,10 +280,10 @@ export default function PdfSection({
                     {isCssVariant && (
                       <button
                         onClick={() => deleteCssTemplate(tmpl.id)}
-                        className="absolute top-1 left-1 w-5 h-5 rounded-full bg-slate-900/80 flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors z-10"
+                        className="absolute top-1 left-1 w-6 h-6 rounded-full bg-slate-900/90 flex items-center justify-center text-amber-300 hover:text-rose-400 hover:bg-rose-500/10 transition-colors z-10"
                         title="Remove style"
                       >
-                        <Trash2 className="w-2.5 h-2.5" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
