@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronUp, FileText, Check, Upload, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, Check, Upload, Trash2, X, Eye } from 'lucide-react'
 import clsx from 'clsx'
 import PromptFactory, { type PromptTemplate } from './PromptFactory'
 import { PDF_TEMPLATES, type PdfTemplateDefinition } from '@/lib/pdf-templates'
@@ -106,8 +106,14 @@ export default function PdfSection({
     localStorage.setItem('pdf_giveaway_handle', v.replace(/^@/, ''))
   }
 
-  const allTemplates = [...PDF_TEMPLATES, ...customTemplates]
-  const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? PDF_TEMPLATES[0]
+  const htmlBuiltIns = PDF_TEMPLATES.filter((t) => t.htmlTemplate)
+  const allTemplates = [...htmlBuiltIns, ...customTemplates]
+  const currentTemplate = allTemplates.find((t) => t.id === selectedDesign) ?? htmlBuiltIns[0] ?? PDF_TEMPLATES[0]
+
+  function openPreview() {
+    const params = new URLSearchParams({ brand: giveawayBrand, handle: giveawayHandle })
+    window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
+  }
 
   function handleImportTemplate(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -141,14 +147,6 @@ export default function PdfSection({
     if (selectedDesign === id) onDesignChange(PDF_TEMPLATES[0].id)
   }
 
-  function handleExportTemplate(tmpl: PdfTemplateDefinition) {
-    const exportData = { name: tmpl.name, description: tmpl.description, colors: tmpl.colors }
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `pdf_template_${tmpl.id}.json`; a.click()
-    URL.revokeObjectURL(url)
-  }
 
   return (
     <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
@@ -227,20 +225,6 @@ export default function PdfSection({
                       <p className="text-xs text-slate-600 mt-0.5">{link.note}</p>
                     </a>
                   ))}
-                </div>
-                <div className="border-t border-slate-800 pt-3">
-                  <p className="text-xs text-slate-600 mb-2">Export a built-in template as JSON to customize colors:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {PDF_TEMPLATES.filter((t) => !t.htmlTemplate).map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => handleExportTemplate(t)}
-                        className="text-xs text-slate-500 hover:text-violet-300 underline underline-offset-2 transition-colors"
-                      >
-                        Export {t.name}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
@@ -347,7 +331,15 @@ export default function PdfSection({
                     </div>
                   </div>
                 </div>
-                <p className="text-xs text-slate-600">Appears in the header, footer, watermark, and QR code.</p>
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-xs text-slate-600">Appears in the header, footer, watermark, and QR code.</p>
+                  <button
+                    onClick={openPreview}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-amber-600/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors flex-shrink-0"
+                  >
+                    <Eye className="w-3 h-3" /> Preview PDF
+                  </button>
+                </div>
               </div>
             )}
           </div>
