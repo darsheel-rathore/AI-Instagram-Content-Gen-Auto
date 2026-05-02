@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ArrowLeft, RefreshCw, DollarSign, Zap, Activity,
-  Edit2, Check, X, BarChart2, Cpu,
+  Edit2, Check, X, Cpu, TrendingUp,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -34,19 +34,23 @@ const PERIODS: { key: Period; label: string }[] = [
 ]
 
 const FEATURE_LABELS: Record<string, string> = {
-  'transcription':  'Transcription',
-  'analysis':       'Reel Analysis',
-  'content-ideas':  'Content Ideas',
-  'pdf-generation': 'PDF Generation',
-  'scraping':       'Instagram Scraping',
+  'transcription':   'Transcription',
+  'analysis':        'Reel Analysis',
+  'content-ideas':   'Content Ideas',
+  'pdf-generation':  'PDF Generation',
+  'pdf-giveaway':    'PDF Giveaway',
+  'ppt-generation':  'PPT Generation',
+  'scraping':        'Instagram Scraping',
 }
 
 const FEATURE_COLORS: Record<string, string> = {
-  'transcription':  '#3b82f6',
-  'analysis':       '#8b5cf6',
-  'content-ideas':  '#10b981',
-  'pdf-generation': '#f59e0b',
-  'scraping':       '#f97316',
+  'transcription':   '#3b82f6',
+  'analysis':        '#8b5cf6',
+  'content-ideas':   '#10b981',
+  'pdf-generation':  '#f59e0b',
+  'pdf-giveaway':    '#f97316',
+  'ppt-generation':  '#ec4899',
+  'scraping':        '#06b6d4',
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -80,104 +84,405 @@ function fmtTokens(n: number): string {
   return n.toString()
 }
 
-// ─── Daily Bar Chart ──────────────────────────────────────────────────────────
+// ─── SVG Line Area Chart ──────────────────────────────────────────────────────
 
-function DailyBarChart({
+function makeSmoothPath(xs: number[], ys: number[]): string {
+  if (xs.length === 0) return ''
+  if (xs.length === 1) return `M ${xs[0]} ${ys[0]}`
+  let d = `M ${xs[0]} ${ys[0]}`
+  for (let i = 0; i < xs.length - 1; i++) {
+    const p0 = { x: xs[Math.max(0, i - 1)],            y: ys[Math.max(0, i - 1)] }
+    const p1 = { x: xs[i],                              y: ys[i] }
+    const p2 = { x: xs[i + 1],                          y: ys[i + 1] }
+    const p3 = { x: xs[Math.min(xs.length - 1, i + 2)], y: ys[Math.min(xs.length - 1, i + 2)] }
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
+  }
+  return d
+}
+
+function LineAreaChart({
   byDay,
 }: {
-  byDay: Record<string, { cost: number; calls: number }>
+  byDay: Record<string, { cost: number; inputTokens: number; outputTokens: number; calls: number }>
 }) {
-  const entries = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0]))
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+
+  const entries = Object.entries(byDay)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, d]) => ({ day, ...d }))
 
   if (!entries.length) {
     return (
-      <div className="flex flex-col items-center justify-center h-36 gap-2">
-        <BarChart2 className="w-8 h-8 text-slate-800" />
+      <div className="flex flex-col items-center justify-center h-48 gap-2">
+        <TrendingUp className="w-8 h-8 text-slate-800" />
         <p className="text-sm text-slate-600">No data for this period</p>
       </div>
     )
   }
 
-  const maxCost = Math.max(...entries.map(([, d]) => d.cost), 0.0001)
+  const W = 800
+  const H = 220
+  const PAD = { top: 24, right: 56, bottom: 36, left: 56 }
+  const CW = W - PAD.left - PAD.right
+  const CH = H - PAD.top - PAD.bottom
+
+  const maxCost  = Math.max(...entries.map((d) => d.cost), 0.0001)
+  const maxCalls = Math.max(...entries.map((d) => d.calls), 1)
+
+  const pts = entries.map((d, i) => ({
+    ...d,
+    x:      entries.length === 1 ? PAD.left + CW / 2 : PAD.left + (i / (entries.length - 1)) * CW,
+    yCost:  PAD.top + (1 - d.cost / maxCost) * CH,
+    yCalls: PAD.top + (1 - d.calls / maxCalls) * CH,
+  }))
+
+  const xs          = pts.map((p) => p.x)
+  const costLinePath  = makeSmoothPath(xs, pts.map((p) => p.yCost))
+  const callsLinePath = makeSmoothPath(xs, pts.map((p) => p.yCalls))
+  const areaPath = `${costLinePath} L ${pts[pts.length - 1].x},${PAD.top + CH} L ${pts[0].x},${PAD.top + CH} Z`
+
+  const gridLevels = [0, 0.25, 0.5, 0.75, 1]
+  const xStep      = Math.max(1, Math.ceil(entries.length / 7))
+  const hovered    = hoverIdx !== null ? pts[hoverIdx] : null
+
+  // Tooltip horizontal position: avoid edges
+  function tooltipLeft(xSvgPct: number): string {
+    if (xSvgPct < 0.2) return '0px'
+    if (xSvgPct > 0.8) return 'auto'
+    return `${xSvgPct * 100}%`
+  }
+  function tooltipRight(xSvgPct: number): string {
+    if (xSvgPct > 0.8) return '0px'
+    return 'auto'
+  }
+  function tooltipTransform(xSvgPct: number): string {
+    if (xSvgPct < 0.2 || xSvgPct > 0.8) return 'none'
+    return 'translateX(-50%)'
+  }
 
   return (
-    <div className="w-full">
-      <div className="flex items-end gap-1 h-32 w-full overflow-x-auto pb-0 relative">
-        {/* Baseline */}
-        <div className="absolute bottom-0 left-0 right-0 border-b border-slate-700/40" />
-        {entries.map(([day, d]) => {
-          const pct = (d.cost / maxCost) * 100
-          const label = day.slice(5).replace('-', '/')
+    <div className="relative select-none">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: 240 }}
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect()
+          const xSvg = ((e.clientX - rect.left) / rect.width) * W
+          let best = 0, bestDist = Infinity
+          pts.forEach((p, i) => {
+            const dist = Math.abs(p.x - xSvg)
+            if (dist < bestDist) { bestDist = dist; best = i }
+          })
+          setHoverIdx(best)
+        }}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#8b5cf6" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id="lineGlowGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stopColor="#6d28d9" />
+            <stop offset="50%"  stopColor="#a78bfa" />
+            <stop offset="100%" stopColor="#6d28d9" />
+          </linearGradient>
+        </defs>
+
+        {/* Grid lines */}
+        {gridLevels.map((t) => {
+          const y = PAD.top + t * CH
           return (
-            <div
-              key={day}
-              className="flex-1 min-w-[18px] max-w-[48px] flex flex-col items-center h-full justify-end group cursor-default"
-              title={`${day}\n${fmtCost(d.cost)} · ${d.calls} call${d.calls !== 1 ? 's' : ''}`}
-            >
-              <div
-                className="w-full rounded-t-sm transition-all"
-                style={{
-                  height: `${pct}%`,
-                  minHeight: d.cost > 0 ? 2 : 0,
-                  background: 'linear-gradient(to top, #6d28d9, #8b5cf6)',
-                  opacity: 0.75,
-                }}
-              />
-            </div>
+            <g key={t}>
+              <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
+                stroke="#1e293b" strokeWidth="1" />
+              <text x={PAD.left - 8} y={y + 4} textAnchor="end" fill="#475569" fontSize="10" fontFamily="monospace">
+                {fmtCost(maxCost * (1 - t))}
+              </text>
+              <text x={W - PAD.right + 8} y={y + 4} textAnchor="start" fill="#92400e" fontSize="9" fontFamily="monospace" opacity="0.7">
+                {Math.round(maxCalls * (1 - t))}
+              </text>
+            </g>
           )
         })}
-      </div>
-      {/* X-axis labels */}
-      <div className="flex gap-1 mt-1.5 overflow-hidden">
-        {entries.map(([day]) => (
-          <div key={day} className="flex-1 min-w-[18px] max-w-[48px] text-center">
-            <span className="text-[8px] text-slate-600 leading-none">
-              {day.slice(5).replace('-', '/')}
-            </span>
-          </div>
+
+        {/* Axis labels */}
+        <text x={PAD.left - 8} y={PAD.top - 8} textAnchor="end" fill="#6d28d9" fontSize="8.5" fontFamily="sans-serif">cost ($)</text>
+        <text x={W - PAD.right + 8} y={PAD.top - 8} textAnchor="start" fill="#92400e" fontSize="8.5" fontFamily="sans-serif">calls</text>
+
+        {/* Area */}
+        <path d={areaPath} fill="url(#areaGrad)" />
+
+        {/* Calls line (dashed amber) */}
+        <path d={callsLinePath} fill="none" stroke="#f59e0b" strokeWidth="1.5"
+          strokeDasharray="5 4" strokeOpacity="0.55" />
+
+        {/* Cost line glow */}
+        <path d={costLinePath} fill="none" stroke="#6d28d9" strokeWidth="5" strokeOpacity="0.15" />
+        {/* Cost line */}
+        <path d={costLinePath} fill="none" stroke="url(#lineGlowGrad)" strokeWidth="2.5" />
+
+        {/* Cost dots */}
+        {pts.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.yCost} r="5" fill="#7c3aed" opacity="0.15" />
+            <circle cx={p.x} cy={p.yCost} r="3"   fill="#a78bfa" stroke="#0a0f1e" strokeWidth="1.5" />
+          </g>
         ))}
-      </div>
-      {/* Y hint */}
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-[9px] text-slate-700">$0</span>
-        <span className="text-[9px] text-slate-700">{fmtCost(maxCost)}</span>
+
+        {/* Calls dots */}
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.yCalls} r="2.5" fill="#f59e0b" stroke="#0a0f1e" strokeWidth="1" opacity="0.6" />
+        ))}
+
+        {/* X axis labels */}
+        {pts.filter((_, i) => i % xStep === 0).map((p, i) => (
+          <text key={i} x={p.x} y={H - 6} textAnchor="middle" fill="#475569" fontSize="9.5" fontFamily="sans-serif">
+            {p.day.slice(5).replace('-', '/')}
+          </text>
+        ))}
+
+        {/* Hover vertical guide */}
+        {hovered && (
+          <>
+            <line
+              x1={hovered.x} y1={PAD.top} x2={hovered.x} y2={PAD.top + CH}
+              stroke="#a78bfa" strokeWidth="1" strokeDasharray="4 3" strokeOpacity="0.45"
+            />
+            <circle cx={hovered.x} cy={hovered.yCost}  r="6" fill="none" stroke="#a78bfa" strokeWidth="2" />
+            <circle cx={hovered.x} cy={hovered.yCalls} r="5" fill="none" stroke="#f59e0b" strokeWidth="1.5" />
+          </>
+        )}
+      </svg>
+
+      {/* Floating tooltip */}
+      {hovered && (
+        <div
+          className="absolute top-2 pointer-events-none z-20"
+          style={{
+            left:      tooltipLeft(hovered.x / W),
+            right:     tooltipRight(hovered.x / W),
+            transform: tooltipTransform(hovered.x / W),
+          }}
+        >
+          <div className="bg-[#0d1424] border border-slate-700/80 rounded-xl px-3.5 py-2.5 shadow-2xl min-w-[120px]">
+            <p className="text-[10px] text-slate-500 mb-1.5 font-medium tracking-wide">{hovered.day}</p>
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" />
+              <span className="text-xs font-bold text-violet-300 tabular-nums">{fmtCost(hovered.cost)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              <span className="text-xs text-amber-300">{hovered.calls} call{hovered.calls !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
+              <span className="text-[10px] text-slate-500 tabular-nums">
+                {fmtTokens((hovered.inputTokens ?? 0) + (hovered.outputTokens ?? 0))} tok
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="flex items-center gap-5 mt-2 px-1">
+        <div className="flex items-center gap-1.5">
+          <div className="w-8 h-0.5 rounded-full" style={{ background: 'linear-gradient(to right, #6d28d9, #a78bfa)' }} />
+          <span className="text-[10px] text-slate-500">Cost (left axis)</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <svg width="32" height="4" viewBox="0 0 32 4">
+            <line x1="0" y1="2" x2="32" y2="2" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="5 4" opacity="0.6" />
+          </svg>
+          <span className="text-[10px] text-slate-500">API Calls (right axis)</span>
+        </div>
       </div>
     </div>
   )
 }
 
-// ─── Horizontal Bar Row ───────────────────────────────────────────────────────
+// ─── Donut Chart ──────────────────────────────────────────────────────────────
+
+function DonutChart({
+  entries,
+  total,
+}: {
+  entries: [string, { cost: number; calls: number }][]
+  total: number
+}) {
+  const CX = 64, CY = 64, MR = 44, SW = 18
+  const CIRC = 2 * Math.PI * MR
+  const GAP = 2
+
+  let accumulated = 0
+  const segments = entries.map(([feature, d]) => {
+    const pct = total > 0 ? d.cost / total : 0
+    const seg = { feature, cost: d.cost, calls: d.calls, pct, offset: accumulated, color: FEATURE_COLORS[feature] ?? '#6d28d9' }
+    accumulated += pct
+    return seg
+  })
+
+  const totalCalls = segments.reduce((s, g) => s + g.calls, 0)
+
+  if (!segments.length) {
+    return <div className="flex items-center justify-center h-32"><p className="text-sm text-slate-600">No data</p></div>
+  }
+
+  return (
+    <div className="flex items-center gap-5 flex-wrap">
+      {/* Donut SVG */}
+      <div className="relative flex-shrink-0">
+        <svg width="128" height="128" viewBox="0 0 128 128">
+          {/* Track */}
+          <circle cx={CX} cy={CY} r={MR} fill="none" stroke="#1e293b" strokeWidth={SW} />
+          {/* Segments */}
+          {segments.map((seg) => {
+            const dash = Math.max(0, seg.pct * CIRC - GAP)
+            const dashOffset = CIRC * 0.25 - seg.offset * CIRC
+            return (
+              <circle
+                key={seg.feature}
+                cx={CX} cy={CY} r={MR}
+                fill="none"
+                stroke={seg.color}
+                strokeWidth={SW}
+                strokeDasharray={`${dash} ${CIRC}`}
+                strokeDashoffset={dashOffset}
+              />
+            )
+          })}
+          {/* Center text */}
+          <text x={CX} y={CY - 9} textAnchor="middle" fill="white" fontSize="13" fontWeight="700" fontFamily="monospace">
+            {fmtCost(total)}
+          </text>
+          <text x={CX} y={CY + 5} textAnchor="middle" fill="#64748b" fontSize="8" fontFamily="sans-serif">
+            total spend
+          </text>
+          <text x={CX} y={CY + 17} textAnchor="middle" fill="#475569" fontSize="8" fontFamily="sans-serif">
+            {totalCalls} calls
+          </text>
+        </svg>
+      </div>
+
+      {/* Legend */}
+      <div className="space-y-2 flex-1 min-w-0">
+        {segments.map((seg) => (
+          <div key={seg.feature} className="space-y-0.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: seg.color }} />
+              <span className="text-[11px] text-slate-400 truncate flex-1 min-w-0">
+                {FEATURE_LABELS[seg.feature] ?? seg.feature}
+              </span>
+              <span className="text-[11px] font-semibold text-slate-300 flex-shrink-0 tabular-nums">
+                {fmtCost(seg.cost)}
+              </span>
+            </div>
+            <div className="h-1 bg-slate-900/80 rounded-full overflow-hidden ml-4">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${seg.pct * 100}%`, background: seg.color }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Token Split Bar ──────────────────────────────────────────────────────────
+
+function TokenSplitBar({ input, output }: { input: number; output: number }) {
+  const total    = input + output
+  const inputPct = total > 0 ? (input / output) * 100 : 50
+  const iPct     = total > 0 ? (input  / total) * 100 : 50
+  const oPct     = 100 - iPct
+
+  return (
+    <div className="space-y-4">
+      {/* Split bar */}
+      <div className="flex h-5 rounded-lg overflow-hidden gap-px">
+        <div
+          className="flex items-center justify-center transition-all duration-700"
+          style={{ width: `${iPct}%`, background: 'linear-gradient(to right, #2563eb, #3b82f6)' }}
+        >
+          {iPct > 15 && <span className="text-[8px] text-white font-semibold tracking-wide">IN</span>}
+        </div>
+        <div
+          className="flex items-center justify-center transition-all duration-700"
+          style={{ width: `${oPct}%`, background: 'linear-gradient(to right, #7c3aed, #a78bfa)' }}
+        >
+          {oPct > 15 && <span className="text-[8px] text-white font-semibold tracking-wide">OUT</span>}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+            <span className="text-[11px] text-slate-500">Input (prompt)</span>
+          </div>
+          <p className="text-xl font-bold text-white tabular-nums leading-tight">{fmtTokens(input)}</p>
+          <p className="text-xs text-slate-600 mt-0.5">{iPct.toFixed(1)}% of total</p>
+        </div>
+        <div>
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+            <span className="text-[11px] text-slate-500">Output (completion)</span>
+          </div>
+          <p className="text-xl font-bold text-white tabular-nums leading-tight">{fmtTokens(output)}</p>
+          <p className="text-xs text-slate-600 mt-0.5">{oPct.toFixed(1)}% of total</p>
+        </div>
+      </div>
+
+      {/* Ratio chip */}
+      {input > 0 && output > 0 && (
+        <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+          <span className="text-[10px] text-slate-600">I/O ratio</span>
+          <span className="text-[10px] font-medium text-slate-400 tabular-nums">
+            {(inputPct / 100).toFixed(1)}× more input than output
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Horizontal Bar (enhanced) ────────────────────────────────────────────────
 
 function HorizBar({
-  label,
-  cost,
-  calls,
-  maxCost,
-  color,
+  label, cost, calls, maxCost, color,
 }: {
-  label: string
-  cost: number
-  calls: number
-  maxCost: number
-  color: string
+  label: string; cost: number; calls: number; maxCost: number; color: string
 }) {
   const pct = maxCost > 0 ? (cost / maxCost) * 100 : 0
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-          <span className="text-xs text-slate-300">{label}</span>
+          <span className="text-xs text-slate-300 truncate">{label}</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-600">{calls} calls</span>
-          <span className="text-xs font-medium text-slate-300">{fmtCost(cost)}</span>
+        <div className="flex items-center gap-3 flex-shrink-0 ml-2">
+          <span className="text-[11px] text-slate-600">{calls} calls</span>
+          <span className="text-xs font-semibold text-slate-200 tabular-nums">{fmtCost(cost)}</span>
         </div>
       </div>
-      <div className="h-2 bg-slate-900 rounded-full overflow-hidden">
+      <div className="h-2.5 bg-slate-900 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${pct}%`, background: color }}
+          style={{
+            width: `${pct}%`,
+            background: `linear-gradient(to right, ${color}99, ${color})`,
+            boxShadow: `0 0 8px ${color}55`,
+          }}
         />
       </div>
     </div>
@@ -187,10 +492,7 @@ function HorizBar({
 // ─── Balance Card ─────────────────────────────────────────────────────────────
 
 function BalanceCard({
-  provider,
-  saved,
-  spent,
-  onSave,
+  provider, saved, spent, onSave,
 }: {
   provider: string
   saved?: { balance: number; label?: string }
@@ -198,12 +500,12 @@ function BalanceCard({
   onSave: (provider: string, balance: number) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
-  const [input, setInput]     = useState(saved?.balance?.toString() ?? '')
-  const [saving, setSaving]   = useState(false)
+  const [input,   setInput]   = useState(saved?.balance?.toString() ?? '')
+  const [saving,  setSaving]  = useState(false)
 
-  const color  = PROVIDER_COLORS[provider] ?? '#64748b'
-  const name   = saved?.label ?? PROVIDER_LABELS[provider] ?? provider
-  const bal    = saved?.balance
+  const color      = PROVIDER_COLORS[provider] ?? '#64748b'
+  const name       = saved?.label ?? PROVIDER_LABELS[provider] ?? provider
+  const bal        = saved?.balance
   const remaining  = bal !== undefined ? bal - spent : undefined
   const pctUsed    = bal !== undefined && bal > 0 ? Math.min(100, (spent / bal) * 100) : 0
   const overBudget = remaining !== undefined && remaining < 0
@@ -219,7 +521,6 @@ function BalanceCard({
 
   return (
     <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 flex flex-col gap-3">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
@@ -234,15 +535,12 @@ function BalanceCard({
         </button>
       </div>
 
-      {/* Edit row */}
       {editing && (
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">$</span>
             <input
-              type="number"
-              min="0"
-              step="0.01"
+              type="number" min="0" step="0.01"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSave()}
@@ -251,23 +549,17 @@ function BalanceCard({
               className="w-full bg-slate-900/70 border border-slate-700 rounded-lg pl-6 pr-3 py-1.5 text-sm text-white placeholder-slate-700 focus:outline-none focus:border-violet-500/50"
             />
           </div>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="p-1.5 rounded-lg bg-violet-500/20 text-violet-400 hover:bg-violet-500/30 transition-colors disabled:opacity-50"
-          >
+          <button onClick={handleSave} disabled={saving}
+            className="p-1.5 rounded-lg bg-violet-500/20 text-violet-400 hover:bg-violet-500/30 transition-colors disabled:opacity-50">
             <Check className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={() => setEditing(false)}
-            className="p-1.5 rounded-lg bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors"
-          >
+          <button onClick={() => setEditing(false)}
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* Stats */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs">
           <span className="text-slate-600">Credit balance</span>
@@ -277,29 +569,22 @@ function BalanceCard({
           <span className="text-slate-600">Estimated spend</span>
           <span className="text-rose-400">{fmtCost(spent)}</span>
         </div>
-
         {bal !== undefined && (
           <>
             <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${pctUsed}%`,
-                  background: pctUsed > 80 ? '#ef4444' : pctUsed > 60 ? '#f59e0b' : color,
-                }}
+                style={{ width: `${pctUsed}%`, background: pctUsed > 80 ? '#ef4444' : pctUsed > 60 ? '#f59e0b' : color }}
               />
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-700">{pctUsed.toFixed(1)}% used</span>
               <span className={clsx('font-medium', overBudget ? 'text-rose-400' : 'text-emerald-400')}>
-                {overBudget
-                  ? `${fmtCost(Math.abs(remaining!))} over`
-                  : `${fmtCost(remaining!)} left`}
+                {overBudget ? `${fmtCost(Math.abs(remaining!))} over` : `${fmtCost(remaining!)} left`}
               </span>
             </div>
           </>
         )}
-
         {bal === undefined && spent > 0 && (
           <p className="text-xs text-slate-700 italic">Set a credit balance to track remaining</p>
         )}
@@ -308,7 +593,7 @@ function BalanceCard({
   )
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function SkeletonBlock({ className }: { className?: string }) {
   return <div className={clsx('animate-pulse rounded-lg bg-slate-800/60', className)} />
@@ -317,10 +602,9 @@ function SkeletonBlock({ className }: { className?: string }) {
 function LoadingSkeleton() {
   return (
     <div className="space-y-7">
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 flex flex-col gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <SkeletonBlock className="w-7 h-7 rounded-lg" />
               <SkeletonBlock className="w-20 h-3" />
@@ -330,44 +614,24 @@ function LoadingSkeleton() {
           </div>
         ))}
       </div>
-      {/* Balances */}
-      <div>
-        <SkeletonBlock className="w-36 h-3 mb-3" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <SkeletonBlock className="w-2.5 h-2.5 rounded-full" />
-                  <SkeletonBlock className="w-24 h-3" />
-                </div>
-                <SkeletonBlock className="w-16 h-3" />
-              </div>
-              <SkeletonBlock className="w-full h-3" />
-              <SkeletonBlock className="w-full h-3" />
-            </div>
-          ))}
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-3">
+            <SkeletonBlock className="w-full h-3" />
+            <SkeletonBlock className="w-full h-3" />
+            <SkeletonBlock className="w-full h-2" />
+          </div>
+        ))}
       </div>
-      {/* Chart */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
-        <SkeletonBlock className="w-24 h-3 mb-4" />
-        <SkeletonBlock className="w-full h-32" />
+        <SkeletonBlock className="w-32 h-3 mb-4" />
+        <SkeletonBlock className="w-full h-56" />
       </div>
-      {/* Breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {[0, 1].map((i) => (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[0, 1, 2].map((i) => (
           <div key={i} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5 space-y-4">
             <SkeletonBlock className="w-28 h-3" />
-            {[0, 1, 2].map((j) => (
-              <div key={j} className="space-y-1.5">
-                <div className="flex justify-between">
-                  <SkeletonBlock className="w-28 h-3" />
-                  <SkeletonBlock className="w-14 h-3" />
-                </div>
-                <SkeletonBlock className="w-full h-2" />
-              </div>
-            ))}
+            <SkeletonBlock className="w-full h-32" />
           </div>
         ))}
       </div>
@@ -375,11 +639,13 @@ function LoadingSkeleton() {
   )
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function UsagePage() {
-  const [period, setPeriod]   = useState<Period>('7d')
-  const [data, setData]       = useState<UsageData | null>(null)
+  const [period, setPeriod] = useState<Period>('7d')
+  const [data,   setData]   = useState<UsageData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tick, setTick]       = useState(0)
+  const [tick,   setTick]   = useState(0)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -402,21 +668,16 @@ export default function UsagePage() {
     setTick((t) => t + 1)
   }
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-
-  const featureEntries = Object.entries(data?.byFeature ?? {}).sort((a, b) => b[1].cost - a[1].cost)
-  const maxFeatureCost = featureEntries[0]?.[1].cost ?? 0
-
+  const featureEntries  = Object.entries(data?.byFeature  ?? {}).sort((a, b) => b[1].cost - a[1].cost)
   const providerEntries = Object.entries(data?.byProvider ?? {}).sort((a, b) => b[1].cost - a[1].cost)
+  const maxFeatureCost  = featureEntries[0]?.[1].cost  ?? 0
   const maxProviderCost = providerEntries[0]?.[1].cost ?? 0
 
   const totalTokens = (data?.totalInputTokens ?? 0) + (data?.totalOutputTokens ?? 0)
-  const inputPct    = totalTokens > 0 ? (data!.totalInputTokens  / totalTokens) * 100 : 50
-  const outputPct   = totalTokens > 0 ? (data!.totalOutputTokens / totalTokens) * 100 : 50
+  const isEmpty     = !loading && data?.totalCalls === 0
 
-  const isEmpty = !loading && data?.totalCalls === 0
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const avgCostPerCall = data && data.totalCalls > 0
+    ? data.totalCost / data.totalCalls : 0
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] text-white">
@@ -424,10 +685,7 @@ export default function UsagePage() {
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#0a0f1e]/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <a
-            href="/"
-            className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
-          >
+          <a href="/" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
             <ArrowLeft className="w-4 h-4" />
             <span className="text-sm">Dashboard</span>
           </a>
@@ -457,9 +715,7 @@ export default function UsagePage() {
               onClick={() => setPeriod(key)}
               className={clsx(
                 'text-xs px-3 py-1.5 rounded-lg font-medium transition-all',
-                period === key
-                  ? 'bg-slate-700 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-300',
+                period === key ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300',
               )}
             >
               {label}
@@ -467,7 +723,7 @@ export default function UsagePage() {
           ))}
         </div>
 
-        {/* ── Initial load skeleton ── */}
+        {/* ── Skeleton ── */}
         {data === null && <LoadingSkeleton />}
 
         {/* ── Empty state ── */}
@@ -481,39 +737,44 @@ export default function UsagePage() {
           </div>
         )}
 
-        {/* ── Summary stats ── */}
+        {/* ── Summary stats — 4 cards ── */}
         {data !== null && !isEmpty && (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
               {
                 label: 'Total Spend',
-                value: data ? fmtCost(data.totalCost) : '—',
-                sub: 'estimated',
+                value: fmtCost(data.totalCost),
+                sub: 'estimated cost',
                 icon: DollarSign,
                 color: 'text-violet-400',
                 bg: 'bg-violet-500/10',
               },
               {
                 label: 'Total Tokens',
-                value: data ? fmtTokens(totalTokens) : '—',
-                sub: data ? `${fmtTokens(data.totalInputTokens)} in · ${fmtTokens(data.totalOutputTokens)} out` : '',
+                value: fmtTokens(totalTokens),
+                sub: `${fmtTokens(data.totalInputTokens)} in · ${fmtTokens(data.totalOutputTokens)} out`,
                 icon: Zap,
                 color: 'text-amber-400',
                 bg: 'bg-amber-500/10',
               },
               {
                 label: 'API Calls',
-                value: data?.totalCalls?.toLocaleString() ?? '—',
-                sub: `across ${Object.keys(data?.byProvider ?? {}).length} provider${Object.keys(data?.byProvider ?? {}).length !== 1 ? 's' : ''}`,
+                value: data.totalCalls.toLocaleString(),
+                sub: `${Object.keys(data.byProvider).length} provider${Object.keys(data.byProvider).length !== 1 ? 's' : ''}`,
                 icon: Activity,
                 color: 'text-emerald-400',
                 bg: 'bg-emerald-500/10',
               },
+              {
+                label: 'Avg Cost / Call',
+                value: fmtCost(avgCostPerCall),
+                sub: 'per API request',
+                icon: TrendingUp,
+                color: 'text-sky-400',
+                bg: 'bg-sky-500/10',
+              },
             ].map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 flex flex-col gap-2"
-              >
+              <div key={stat.label} className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0', stat.bg)}>
                     <stat.icon className={clsx('w-3.5 h-3.5', stat.color)} />
@@ -521,7 +782,7 @@ export default function UsagePage() {
                   <span className="text-xs text-slate-500">{stat.label}</span>
                 </div>
                 <p className="text-2xl font-bold text-white tabular-nums">{stat.value}</p>
-                {stat.sub && <p className="text-xs text-slate-600">{stat.sub}</p>}
+                <p className="text-xs text-slate-600">{stat.sub}</p>
               </div>
             ))}
           </div>
@@ -530,10 +791,8 @@ export default function UsagePage() {
         {/* ── Provider balances ── */}
         {data !== null && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-              Provider Balances
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Provider Balances</p>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               {ALL_PROVIDERS.map((p) => (
                 <BalanceCard
                   key={p}
@@ -545,60 +804,42 @@ export default function UsagePage() {
               ))}
             </div>
             <p className="text-xs text-slate-700 mt-2">
-              Enter your credit balance per provider to track remaining budget. Spend is estimated from logged usage.
+              Enter your credit balance per provider to track remaining budget.
             </p>
           </div>
         )}
 
-        {/* ── Daily spend chart ── */}
+        {/* ── Line area chart ── */}
         {data !== null && !isEmpty && (
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Daily Spend
-              </p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Daily Activity</p>
               <span className="text-xs text-slate-600">
                 {Object.keys(data.byDay).length} day{Object.keys(data.byDay).length !== 1 ? 's' : ''}
               </span>
             </div>
-            <DailyBarChart byDay={data.byDay} />
+            <LineAreaChart byDay={data.byDay} />
           </div>
         )}
 
-        {/* ── Feature + Provider breakdown ── */}
+        {/* ── Bottom 3-col grid ── */}
         {data !== null && !isEmpty && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
-            {/* Feature breakdown */}
+            {/* Cost by feature — donut */}
             <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-                Usage by Feature
-              </p>
-              {featureEntries.length > 0 ? (
-                <div className="space-y-3.5">
-                  {featureEntries.map(([feature, d]) => (
-                    <HorizBar
-                      key={feature}
-                      label={FEATURE_LABELS[feature] ?? feature}
-                      cost={d.cost}
-                      calls={d.calls}
-                      maxCost={maxFeatureCost}
-                      color={FEATURE_COLORS[feature] ?? '#6d28d9'}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-600">No data</p>
-              )}
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Cost by Feature</p>
+              <DonutChart
+                entries={featureEntries as [string, { cost: number; calls: number }][]}
+                total={data.totalCost}
+              />
             </div>
 
             {/* Provider breakdown */}
             <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-                Usage by Provider
-              </p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Cost by Provider</p>
               {providerEntries.length > 0 ? (
-                <div className="space-y-3.5">
+                <div className="space-y-4">
                   {providerEntries.map(([provider, d]) => (
                     <HorizBar
                       key={provider}
@@ -614,43 +855,14 @@ export default function UsagePage() {
                 <p className="text-sm text-slate-600">No data</p>
               )}
             </div>
-          </div>
-        )}
 
-        {/* ── Token breakdown ── */}
-        {data !== null && !isEmpty && totalTokens > 0 && (
-          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-              Token Breakdown
-            </p>
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs text-slate-500">Input (prompt)</span>
-                  <span className="text-xs font-semibold text-white">{fmtTokens(data!.totalInputTokens)}</span>
-                </div>
-                <div className="h-2 bg-slate-900 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-700"
-                    style={{ width: `${inputPct}%` }}
-                  />
-                </div>
-                <p className="text-xs text-slate-700 mt-1">{inputPct.toFixed(1)}% of total</p>
+            {/* Token split */}
+            {totalTokens > 0 && (
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Token Breakdown</p>
+                <TokenSplitBar input={data.totalInputTokens} output={data.totalOutputTokens} />
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs text-slate-500">Output (completion)</span>
-                  <span className="text-xs font-semibold text-white">{fmtTokens(data!.totalOutputTokens)}</span>
-                </div>
-                <div className="h-2 bg-slate-900 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-violet-500 rounded-full transition-all duration-700"
-                    style={{ width: `${outputPct}%` }}
-                  />
-                </div>
-                <p className="text-xs text-slate-700 mt-1">{outputPct.toFixed(1)}% of total</p>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
