@@ -43,16 +43,6 @@ const FEATURE_LABELS: Record<string, string> = {
   'scraping':        'Instagram Scraping',
 }
 
-const FEATURE_COLORS: Record<string, string> = {
-  'transcription':   '#3b82f6',
-  'analysis':        '#8b5cf6',
-  'content-ideas':   '#10b981',
-  'pdf-generation':  '#f59e0b',
-  'pdf-giveaway':    '#f97316',
-  'ppt-generation':  '#ec4899',
-  'scraping':        '#06b6d4',
-}
-
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Claude (Anthropic)',
   openai:    'OpenAI',
@@ -309,6 +299,9 @@ function LineAreaChart({
 
 // ─── Donut Chart ──────────────────────────────────────────────────────────────
 
+// VIBGYOR heat scale: highest cost → Red, lowest → Violet
+const HEAT_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#6366f1', '#8b5cf6']
+
 function DonutChart({
   entries,
   total,
@@ -316,81 +309,168 @@ function DonutChart({
   entries: [string, { cost: number; calls: number }][]
   total: number
 }) {
-  const CX = 64, CY = 64, MR = 44, SW = 18
+  const [hovered, setHovered] = useState<string | null>(null)
+
+  const CX = 64, CY = 64, MR = 42, SW = 16
   const CIRC = 2 * Math.PI * MR
-  const GAP = 2
+  const GAP  = 2.5
+  const POP  = 6   // SVG units to translate outward on hover
 
   let accumulated = 0
-  const segments = entries.map(([feature, d]) => {
-    const pct = total > 0 ? d.cost / total : 0
-    const seg = { feature, cost: d.cost, calls: d.calls, pct, offset: accumulated, color: FEATURE_COLORS[feature] ?? '#6d28d9' }
+  const segments = entries.map(([feature, d], idx) => {
+    const pct   = total > 0 ? d.cost / total : 0
+    const color = HEAT_COLORS[Math.min(idx, HEAT_COLORS.length - 1)]
+
+    // Mid-angle of this segment in radians (12-o'clock = start, clockwise)
+    const midFrac    = accumulated + pct / 2
+    const midRad     = (midFrac * 2 * Math.PI) - Math.PI / 2
+    const dx         = Math.cos(midRad) * POP
+    const dy         = Math.sin(midRad) * POP
+
+    const seg = { feature, cost: d.cost, calls: d.calls, pct, offset: accumulated, color, dx, dy }
     accumulated += pct
     return seg
   })
 
   const totalCalls = segments.reduce((s, g) => s + g.calls, 0)
+  const hovSeg     = hovered ? segments.find((s) => s.feature === hovered) ?? null : null
 
   if (!segments.length) {
     return <div className="flex items-center justify-center h-32"><p className="text-sm text-slate-600">No data</p></div>
   }
 
   return (
-    <div className="flex items-center gap-5 flex-wrap">
-      {/* Donut SVG */}
-      <div className="relative flex-shrink-0">
-        <svg width="128" height="128" viewBox="0 0 128 128">
-          {/* Track */}
-          <circle cx={CX} cy={CY} r={MR} fill="none" stroke="#1e293b" strokeWidth={SW} />
-          {/* Segments */}
-          {segments.map((seg) => {
-            const dash = Math.max(0, seg.pct * CIRC - GAP)
-            const dashOffset = CIRC * 0.25 - seg.offset * CIRC
-            return (
-              <circle
-                key={seg.feature}
-                cx={CX} cy={CY} r={MR}
-                fill="none"
-                stroke={seg.color}
-                strokeWidth={SW}
-                strokeDasharray={`${dash} ${CIRC}`}
-                strokeDashoffset={dashOffset}
-              />
-            )
-          })}
-          {/* Center text */}
-          <text x={CX} y={CY - 9} textAnchor="middle" fill="white" fontSize="13" fontWeight="700" fontFamily="monospace">
-            {fmtCost(total)}
-          </text>
-          <text x={CX} y={CY + 5} textAnchor="middle" fill="#64748b" fontSize="8" fontFamily="sans-serif">
-            total spend
-          </text>
-          <text x={CX} y={CY + 17} textAnchor="middle" fill="#475569" fontSize="8" fontFamily="sans-serif">
-            {totalCalls} calls
-          </text>
-        </svg>
+    <div className="flex flex-col gap-4">
+      {/* Donut + center label row */}
+      <div className="flex items-center gap-5">
+        <div className="relative flex-shrink-0">
+          <svg
+            width="128" height="128" viewBox="0 0 128 128"
+            style={{ overflow: 'visible' }}
+          >
+            {/* Track ring */}
+            <circle cx={CX} cy={CY} r={MR} fill="none" stroke="#1e293b" strokeWidth={SW} />
+
+            {/* Segments */}
+            {segments.map((seg) => {
+              const dash       = Math.max(0, seg.pct * CIRC - GAP)
+              const dashOffset = CIRC * 0.25 - seg.offset * CIRC
+              const isHov      = hovered === seg.feature
+              const isDim      = hovered !== null && !isHov
+              return (
+                <circle
+                  key={seg.feature}
+                  cx={CX} cy={CY} r={MR}
+                  fill="none"
+                  strokeDasharray={`${dash} ${CIRC}`}
+                  strokeDashoffset={dashOffset}
+                  style={{
+                    stroke:       seg.color,
+                    strokeWidth:  isHov ? SW + 5 : SW,
+                    opacity:      isDim ? 0.15 : 1,
+                    transform:    isHov
+                      ? `translate(${seg.dx}px, ${seg.dy}px)`
+                      : 'translate(0px, 0px)',
+                    filter:       isHov ? `drop-shadow(0 0 7px ${seg.color}cc)` : 'none',
+                    transition:   'transform 0.22s ease, opacity 0.22s ease, stroke-width 0.22s ease, filter 0.22s ease',
+                    cursor:       'pointer',
+                  }}
+                  onMouseEnter={() => setHovered(seg.feature)}
+                  onMouseLeave={() => setHovered(null)}
+                />
+              )
+            })}
+
+            {/* Center text — updates on hover */}
+            <text x={CX} y={CY - 10} textAnchor="middle" fill="white"
+              fontSize={hovSeg ? '11' : '13'} fontWeight="700" fontFamily="monospace">
+              {hovSeg ? fmtCost(hovSeg.cost) : fmtCost(total)}
+            </text>
+            <text x={CX} y={CY + 4} textAnchor="middle" fill="#64748b" fontSize="7.5" fontFamily="sans-serif">
+              {hovSeg
+                ? (FEATURE_LABELS[hovSeg.feature] ?? hovSeg.feature).replace(' ', '\n')
+                : 'total spend'}
+            </text>
+            <text x={CX} y={CY + 16} textAnchor="middle" fill="#475569" fontSize="7.5" fontFamily="sans-serif">
+              {hovSeg ? `${hovSeg.calls} calls` : `${totalCalls} calls`}
+            </text>
+            {hovSeg && (
+              <text x={CX} y={CY + 27} textAnchor="middle" fill={hovSeg.color} fontSize="7" fontFamily="sans-serif">
+                {(hovSeg.pct * 100).toFixed(1)}% of spend
+              </text>
+            )}
+          </svg>
+        </div>
+
+        {/* Percentage label beside donut */}
+        {hovSeg && (
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold" style={{ color: hovSeg.color }}>
+              {FEATURE_LABELS[hovSeg.feature] ?? hovSeg.feature}
+            </p>
+            <p className="text-xl font-bold text-white tabular-nums mt-0.5">{fmtCost(hovSeg.cost)}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{hovSeg.calls} calls · {(hovSeg.pct * 100).toFixed(1)}%</p>
+          </div>
+        )}
       </div>
 
-      {/* Legend */}
-      <div className="space-y-2 flex-1 min-w-0">
-        {segments.map((seg) => (
-          <div key={seg.feature} className="space-y-0.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: seg.color }} />
-              <span className="text-[11px] text-slate-400 truncate flex-1 min-w-0">
-                {FEATURE_LABELS[seg.feature] ?? seg.feature}
-              </span>
-              <span className="text-[11px] font-semibold text-slate-300 flex-shrink-0 tabular-nums">
-                {fmtCost(seg.cost)}
-              </span>
+      {/* Legend rows */}
+      <div className="space-y-1">
+        {segments.map((seg) => {
+          const isHov = hovered === seg.feature
+          const isDim = hovered !== null && !isHov
+          return (
+            <div
+              key={seg.feature}
+              className="rounded-lg px-2 py-1.5 cursor-pointer select-none"
+              style={{
+                opacity:    isDim ? 0.3 : 1,
+                transform:  isHov ? 'translateX(5px)' : 'translateX(0)',
+                background: isHov ? `${seg.color}14` : 'transparent',
+                borderLeft: isHov ? `2px solid ${seg.color}` : '2px solid transparent',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={() => setHovered(seg.feature)}
+              onMouseLeave={() => setHovered(null)}
+            >
+              <div className="flex items-center gap-2 min-w-0 mb-1">
+                <div
+                  className="flex-shrink-0 rounded-sm"
+                  style={{
+                    width:     isHov ? 10 : 8,
+                    height:    isHov ? 10 : 8,
+                    background: seg.color,
+                    boxShadow:  isHov ? `0 0 6px ${seg.color}` : 'none',
+                    transition: 'all 0.2s ease',
+                  }}
+                />
+                <span className={clsx(
+                  'text-[11px] truncate flex-1 min-w-0 transition-colors duration-200',
+                  isHov ? 'text-white font-semibold' : 'text-slate-400',
+                )}>
+                  {FEATURE_LABELS[seg.feature] ?? seg.feature}
+                </span>
+                <span className={clsx(
+                  'text-[11px] flex-shrink-0 tabular-nums transition-colors duration-200',
+                  isHov ? 'font-bold' : 'font-semibold text-slate-300',
+                )} style={{ color: isHov ? seg.color : undefined }}>
+                  {fmtCost(seg.cost)}
+                </span>
+              </div>
+              <div className="h-1 bg-slate-900/80 rounded-full overflow-hidden ml-4">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width:     `${seg.pct * 100}%`,
+                    background: seg.color,
+                    boxShadow:  isHov ? `0 0 8px ${seg.color}99` : 'none',
+                    transition: 'box-shadow 0.2s ease',
+                  }}
+                />
+              </div>
             </div>
-            <div className="h-1 bg-slate-900/80 rounded-full overflow-hidden ml-4">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${seg.pct * 100}%`, background: seg.color }}
-              />
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
