@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import QRCode from 'qrcode'
+import fs from 'fs'
+import path from 'path'
 import { buildGiveawayHtml, type GiveawayPdfContent } from '@/lib/giveaway-html-template'
+
+function readProfilePhotoAsDataUrl(): string | undefined {
+  try {
+    const file = path.join(process.cwd(), 'public', 'profile_photo.jpg')
+    if (fs.existsSync(file)) {
+      const buf = fs.readFileSync(file)
+      return `data:image/jpeg;base64,${buf.toString('base64')}`
+    }
+  } catch {}
+  return undefined
+}
 
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
@@ -30,7 +43,8 @@ export async function POST(req: NextRequest) {
       color: { dark: '#0f1729', light: '#ffffff' },
     })
 
-    const html = buildGiveawayHtml(content, qrDataUrl, brand, handle, customCss, whatsappLink, website, linktree)
+    const profilePhotoDataUrl = readProfilePhotoAsDataUrl()
+    const html = buildGiveawayHtml(content, qrDataUrl, brand, handle, customCss, whatsappLink, website, linktree, profilePhotoDataUrl)
 
     const puppeteer = await import('puppeteer')
     const browser = await puppeteer.default.launch({
@@ -46,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const page = await browser.newPage()
-      await page.setDefaultNavigationTimeout(30_000)
+      page.setDefaultNavigationTimeout(30_000)
       await page.setContent(html, { waitUntil: 'networkidle0' })
 
       // Wait for all fonts to fully render before capturing

@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     color: { dark: '#0f1729', light: '#ffffff' },
   })
 
-  const html = buildGiveawayHtml(PREVIEW_CONTENT, qrDataUrl, brand, handle, customCss, whatsappLink, website, linktree)
+  const html = buildGiveawayHtml(PREVIEW_CONTENT, qrDataUrl, brand, handle, customCss, whatsappLink, website, linktree, '/profile_photo.jpg')
 
   // Inject a thin preview banner at the top
   const withBanner = html.replace(
