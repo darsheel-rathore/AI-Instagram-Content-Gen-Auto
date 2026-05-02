@@ -6,11 +6,13 @@ export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const { content, brandName, instagramHandle, customCss }: {
+  const { content, brandName, instagramHandle, customCss, whatsappLink, website }: {
     content: GiveawayPdfContent
     brandName?: string
     instagramHandle?: string
     customCss?: string
+    whatsappLink?: string
+    website?: string
   } = await req.json()
 
   if (!content?.title) {
@@ -27,7 +29,7 @@ export async function POST(req: NextRequest) {
       color: { dark: '#0f1729', light: '#ffffff' },
     })
 
-    const html = buildGiveawayHtml(content, qrDataUrl, brand, handle, customCss)
+    const html = buildGiveawayHtml(content, qrDataUrl, brand, handle, customCss, whatsappLink, website)
 
     const puppeteer = await import('puppeteer')
     const browser = await puppeteer.default.launch({
@@ -46,8 +48,8 @@ export async function POST(req: NextRequest) {
       await page.setDefaultNavigationTimeout(30_000)
       await page.setContent(html, { waitUntil: 'networkidle0' })
 
-      // Extra wait for Google Fonts to apply
-      await new Promise((r) => setTimeout(r, 800))
+      // Wait for all fonts to fully render before capturing
+      await page.evaluateHandle('document.fonts.ready')
 
       const pdf = await page.pdf({
         format: 'A4',

@@ -77,14 +77,20 @@ export default function PdfSection({
   const [cssTemplates, setCssTemplates] = useState<PdfTemplateDefinition[]>([])
   const [giveawayBrand, setGiveawayBrand] = useState('Medha')
   const [giveawayHandle, setGiveawayHandle] = useState('themedhachannel')
+  const [giveawayWhatsapp, setGiveawayWhatsapp] = useState('')
+  const [giveawayWebsite, setGiveawayWebsite] = useState('')
   const cssImportRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     try {
-      const brand = localStorage.getItem('pdf_giveaway_brand')
-      const handle = localStorage.getItem('pdf_giveaway_handle')
-      if (brand) setGiveawayBrand(brand)
-      if (handle) setGiveawayHandle(handle)
+      const brand    = localStorage.getItem('pdf_giveaway_brand')
+      const handle   = localStorage.getItem('pdf_giveaway_handle')
+      const whatsapp = localStorage.getItem('pdf_giveaway_whatsapp')
+      const website  = localStorage.getItem('pdf_giveaway_website')
+      if (brand)    setGiveawayBrand(brand)
+      if (handle)   setGiveawayHandle(handle)
+      if (whatsapp) setGiveawayWhatsapp(whatsapp)
+      if (website)  setGiveawayWebsite(website)
       const saved = localStorage.getItem('pdf_css_templates')
       if (saved) setCssTemplates(JSON.parse(saved) as PdfTemplateDefinition[])
     } catch { /* ignore */ }
@@ -98,6 +104,16 @@ export default function PdfSection({
   function saveGiveawayHandle(v: string) {
     setGiveawayHandle(v.replace(/^@/, ''))
     localStorage.setItem('pdf_giveaway_handle', v.replace(/^@/, ''))
+  }
+
+  function saveGiveawayWhatsapp(v: string) {
+    setGiveawayWhatsapp(v)
+    localStorage.setItem('pdf_giveaway_whatsapp', v)
+  }
+
+  function saveGiveawayWebsite(v: string) {
+    setGiveawayWebsite(v)
+    localStorage.setItem('pdf_giveaway_website', v)
   }
 
   const htmlBuiltIns = PDF_TEMPLATES.filter((t) => t.htmlTemplate)
@@ -153,7 +169,9 @@ export default function PdfSection({
   function openPreview(e: React.MouseEvent, tmpl: PdfTemplateDefinition) {
     e.stopPropagation()
     const params = new URLSearchParams({ brand: giveawayBrand, handle: giveawayHandle })
-    if (tmpl.customCss) params.set('css', tmpl.customCss)
+    if (tmpl.customCss)    params.set('css', tmpl.customCss)
+    if (giveawayWhatsapp)  params.set('whatsapp', giveawayWhatsapp)
+    if (giveawayWebsite)   params.set('website', giveawayWebsite)
     window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
   }
 
@@ -293,7 +311,7 @@ export default function PdfSection({
 
             {/* Giveaway brand config */}
             {(selectedDesign === 'giveaway' || cssTemplates.some((t) => t.id === selectedDesign)) && (
-              <div className="mt-3 rounded-xl border border-amber-700/30 bg-amber-500/5 p-3 space-y-2">
+              <div className="mt-3 rounded-xl border border-amber-700/30 bg-amber-500/5 p-3 space-y-3">
                 <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-wider">Brand Config</p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -319,8 +337,28 @@ export default function PdfSection({
                       />
                     </div>
                   </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">WhatsApp Community Link</label>
+                    <input
+                      type="url"
+                      value={giveawayWhatsapp}
+                      onChange={(e) => saveGiveawayWhatsapp(e.target.value)}
+                      placeholder="https://chat.whatsapp.com/..."
+                      className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-600/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Website</label>
+                    <input
+                      type="url"
+                      value={giveawayWebsite}
+                      onChange={(e) => saveGiveawayWebsite(e.target.value)}
+                      placeholder="https://yourwebsite.com"
+                      className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-600/50"
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-slate-600 pt-1">Appears in the header, footer, watermark, and QR code.</p>
+                <p className="text-xs text-slate-600">Brand name, handle &amp; QR appear on every page. WhatsApp and website are clickable links in the footer.</p>
               </div>
             )}
           </div>

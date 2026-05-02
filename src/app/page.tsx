@@ -956,13 +956,15 @@ export default function Dashboard() {
   // --- Shared render helper (giveaway = Puppeteer, else jsPDF) --------------
   async function renderAndDownloadPdf(data: object, ideaTitle: string, isGiveaway: boolean) {
     if (isGiveaway) {
-      const brandName = localStorage.getItem('pdf_giveaway_brand') ?? 'Medha'
-      const instagramHandle = localStorage.getItem('pdf_giveaway_handle') ?? 'themedhachannel'
-      const customCss = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
+      const brandName       = localStorage.getItem('pdf_giveaway_brand')    ?? 'Medha'
+      const instagramHandle = localStorage.getItem('pdf_giveaway_handle')   ?? 'themedhachannel'
+      const customCss       = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
+      const whatsappLink    = localStorage.getItem('pdf_giveaway_whatsapp') ?? undefined
+      const website         = localStorage.getItem('pdf_giveaway_website')  ?? undefined
       const pdfRes = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss }),
+        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss, whatsappLink, website }),
       })
       if (!pdfRes.ok) {
         const err = await pdfRes.json().catch(() => ({}))

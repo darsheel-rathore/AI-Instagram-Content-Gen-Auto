@@ -21,12 +21,28 @@ function esc(s: string): string {
     .replace(/\n/g, '<br>')
 }
 
+function escAttr(s: string): string {
+  return (s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+function shortUrl(url: string): string {
+  return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 42)
+}
+
+const ICON_INSTAGRAM = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="5.5" stroke="#c9a84c" stroke-width="2"/><circle cx="12" cy="12" r="4.5" stroke="#c9a84c" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5" fill="#c9a84c"/></svg>`
+
+const ICON_WHATSAPP = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 21l1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+
+const ICON_GLOBE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="#60a5fa" stroke-width="2"/><ellipse cx="12" cy="12" rx="4" ry="9" stroke="#60a5fa" stroke-width="2"/><path d="M3.5 9h17M3.5 15h17" stroke="#60a5fa" stroke-width="1.5"/></svg>`
+
 export function buildGiveawayHtml(
   content: GiveawayPdfContent,
   qrCodeDataUrl: string,
   brandName: string,
   instagramHandle: string,
   customCss?: string,
+  whatsappLink?: string,
+  website?: string,
 ): string {
   const { title, subtitle, intro, sections = [], reflectionQuestions = [], closingNote, ctaText } = content
 
@@ -46,6 +62,13 @@ export function buildGiveawayHtml(
       <div class="question-text">${esc(q)}</div>
     </div>`).join('')
 
+  const whatsappHref = whatsappLink
+    ? (whatsappLink.startsWith('http') ? whatsappLink : `https://${whatsappLink}`)
+    : ''
+  const websiteHref = website
+    ? (website.startsWith('http') ? website : `https://${website}`)
+    : ''
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -62,9 +85,10 @@ export function buildGiveawayHtml(
       background: #ffffff;
       color: #374151;
       width: 210mm;
-      /* Reserve space for fixed header (≈110px) and fixed footer (≈100px) */
-      padding-top: 112px;
-      padding-bottom: 100px;
+      /* Extra top padding = header height (~108px) + 24px breathing room */
+      padding-top: 132px;
+      /* Extra bottom padding = footer height (~72px) + 16px breathing room */
+      padding-bottom: 88px;
     }
 
     /* Watermark — position:fixed repeats on every PDF page */
@@ -90,35 +114,35 @@ export function buildGiveawayHtml(
       position: fixed;
       top: 0; left: 0; right: 0;
       background: #0f1729;
-      padding: 20px 60px 16px;
+      padding: 18px 60px 14px;
       z-index: 10;
     }
 
     .header-name {
       font-family: 'Playfair Display', Georgia, serif;
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 700;
       color: #ffffff;
       letter-spacing: 0.01em;
     }
 
     .header-handle {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 400;
       color: #c9a84c;
-      margin-top: 5px;
+      margin-top: 4px;
       letter-spacing: 0.1em;
     }
 
     .header-divider {
-      margin-top: 18px;
+      margin-top: 14px;
       height: 1px;
-      background: linear-gradient(to right, #c9a84c 0%, rgba(201,168,76,0.15) 100%);
+      background: linear-gradient(to right, #c9a84c 0%, rgba(201,168,76,0.12) 100%);
     }
 
     /* ── Title block ───────────────────────────────── */
     .title-block {
-      padding: 44px 60px 36px;
+      padding: 40px 60px 34px;
       text-align: center;
       border-bottom: 1px solid rgba(201,168,76,0.2);
       background: #ffffff;
@@ -278,6 +302,7 @@ export function buildGiveawayHtml(
       background: #ffffff;
       position: relative;
       z-index: 1;
+      break-after: avoid;
     }
 
     .closing p {
@@ -289,12 +314,12 @@ export function buildGiveawayHtml(
 
     /* ── CTA ───────────────────────────────────────── */
     .cta {
-      margin: 4px 60px 28px;
+      margin: 4px 60px 24px;
       background: #0f1729;
       border-radius: 10px;
       padding: 20px 28px;
       text-align: center;
-      page-break-inside: avoid;
+      break-before: avoid;
       position: relative;
       z-index: 1;
     }
@@ -311,33 +336,56 @@ export function buildGiveawayHtml(
     .footer {
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      padding: 12px 60px;
+      padding: 10px 60px;
       border-top: 2px solid #c9a84c;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 16px;
       background: #ffffff;
       z-index: 10;
     }
 
-    .footer-left { display: flex; flex-direction: column; gap: 4px; }
+    .footer-brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex-shrink: 0;
+    }
 
     .footer-handle {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: #c9a84c;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.07em;
     }
 
     .footer-tagline {
-      font-size: 11px;
+      font-size: 10px;
       color: #9ca3af;
       font-style: italic;
     }
 
+    .footer-links {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-left: auto;
+      margin-right: 14px;
+    }
+
+    .footer-link {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      color: #6b7280;
+      text-decoration: none;
+    }
+
     .footer-qr {
-      width: 52px;
-      height: 52px;
+      width: 48px;
+      height: 48px;
+      flex-shrink: 0;
     }
   </style>
   ${customCss ? `<style>\n${customCss}\n</style>` : ''}
@@ -376,9 +424,23 @@ export function buildGiveawayHtml(
 
   <!-- Footer -->
   <div class="footer">
-    <div class="footer-left">
+    <div class="footer-brand">
       <div class="footer-handle">@${esc(instagramHandle)}</div>
       <div class="footer-tagline">Your guide to conscious living</div>
+    </div>
+    <div class="footer-links">
+      <a href="https://instagram.com/${escAttr(instagramHandle)}" class="footer-link">
+        ${ICON_INSTAGRAM}
+        <span>@${esc(instagramHandle)}</span>
+      </a>
+      ${whatsappHref ? `<a href="${escAttr(whatsappHref)}" class="footer-link">
+        ${ICON_WHATSAPP}
+        <span>WhatsApp Community</span>
+      </a>` : ''}
+      ${websiteHref ? `<a href="${escAttr(websiteHref)}" class="footer-link">
+        ${ICON_GLOBE}
+        <span>${esc(shortUrl(websiteHref))}</span>
+      </a>` : ''}
     </div>
     <img class="footer-qr" src="${qrCodeDataUrl}" alt="Scan to follow on Instagram" />
   </div>

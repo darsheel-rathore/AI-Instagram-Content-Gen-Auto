@@ -192,8 +192,7 @@ export default function StarredPage() {
     setDownloadingFor(idea.id)
     setPdfErrors((prev) => { const n = { ...prev }; delete n[idea.id]; return n })
     try {
-      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
-      await generateAndDownloadPdf(cached.content, cached.design)
+      await renderAndDownloadPdf(cached.content, idea.title, cached.design)
     } catch (e: unknown) {
       setPdfErrors((prev) => ({
         ...prev,
@@ -201,6 +200,36 @@ export default function StarredPage() {
       }))
     } finally {
       setDownloadingFor(null)
+    }
+  }
+
+  async function renderAndDownloadPdf(data: object, ideaTitle: string, design: string) {
+    if (design === 'giveaway' || design.startsWith('pdf_css_')) {
+      const brandName       = localStorage.getItem('pdf_giveaway_brand')      ?? 'Medha'
+      const instagramHandle = localStorage.getItem('pdf_giveaway_handle')     ?? 'themedhachannel'
+      const customCss       = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
+      const whatsappLink    = localStorage.getItem('pdf_giveaway_whatsapp')   ?? undefined
+      const website         = localStorage.getItem('pdf_giveaway_website')    ?? undefined
+      const pdfRes = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss, whatsappLink, website }),
+      })
+      if (!pdfRes.ok) {
+        const err = await pdfRes.json().catch(() => ({}))
+        throw new Error((err as { error?: string }).error ?? 'PDF generation failed')
+      }
+      const blob = await pdfRes.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const safe = ideaTitle.slice(0, 50).replace(/[^a-z0-9\s]/gi, '').trim().replace(/\s+/g, '-').toLowerCase()
+      a.href = url
+      a.download = `${safe || 'giveaway'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } else {
+      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
+      await generateAndDownloadPdf(data as Parameters<typeof generateAndDownloadPdf>[0], design)
     }
   }
 
@@ -245,8 +274,7 @@ export default function StarredPage() {
         return updated
       })
 
-      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
-      await generateAndDownloadPdf(data, design)
+      await renderAndDownloadPdf(data, idea.title, design)
     } catch (e: unknown) {
       setPdfErrors((prev) => ({
         ...prev,
