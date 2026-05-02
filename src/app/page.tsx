@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import type { Reel } from '@/lib/types'
 import ReelCard from '@/components/ReelCard'
 import MetricsOverview from '@/components/MetricsOverview'
@@ -182,10 +182,16 @@ const SCRAPE_MSG: Record<ScrapeState, string> = {
 
 export default function Dashboard() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab')
     return (t as Tab) ?? 'mine'
   })
+
+  const switchTab = useCallback((id: Tab) => {
+    setTab(id)
+    router.replace(`/?tab=${id}`, { scroll: false })
+  }, [router])
 
   useEffect(() => {
     const hash = window.location.hash
@@ -1118,7 +1124,7 @@ export default function Dashboard() {
             {tabs.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
+                onClick={() => switchTab(t.id)}
                 className={clsx(
                   'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
                   tab === t.id ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300',

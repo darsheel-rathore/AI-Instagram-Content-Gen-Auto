@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, RefreshCw, DollarSign, Zap, Activity,
   Edit2, Check, X, Cpu, TrendingUp,
@@ -723,7 +722,6 @@ function LoadingSkeleton() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function UsagePage() {
-  const router = useRouter()
   const [period, setPeriod] = useState<Period>('7d')
   const [data,   setData]   = useState<UsageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -767,7 +765,7 @@ export default function UsagePage() {
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#0a0f1e]/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <button onClick={() => router.back()} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+          <button onClick={() => window.history.length > 1 ? window.history.back() : (window.location.href = '/')} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
             <ArrowLeft className="w-4 h-4" />
             <span className="text-sm">Back</span>
           </button>
