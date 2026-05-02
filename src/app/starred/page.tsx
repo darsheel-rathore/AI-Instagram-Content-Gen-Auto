@@ -210,10 +210,11 @@ export default function StarredPage() {
       const customCss       = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
       const whatsappLink    = localStorage.getItem('pdf_giveaway_whatsapp')   ?? undefined
       const website         = localStorage.getItem('pdf_giveaway_website')    ?? undefined
+      const linktree        = localStorage.getItem('pdf_giveaway_linktree')   ?? undefined
       const pdfRes = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss, whatsappLink, website }),
+        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss, whatsappLink, website, linktree }),
       })
       if (!pdfRes.ok) {
         const err = await pdfRes.json().catch(() => ({}))

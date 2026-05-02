@@ -6,13 +6,14 @@ export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const { content, brandName, instagramHandle, customCss, whatsappLink, website }: {
+  const { content, brandName, instagramHandle, customCss, whatsappLink, website, linktree }: {
     content: GiveawayPdfContent
     brandName?: string
     instagramHandle?: string
     customCss?: string
     whatsappLink?: string
     website?: string
+    linktree?: string
   } = await req.json()
 
   if (!content?.title) {
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
       color: { dark: '#0f1729', light: '#ffffff' },
     })
 
-    const html = buildGiveawayHtml(content, qrDataUrl, brand, handle, customCss, whatsappLink, website)
+    const html = buildGiveawayHtml(content, qrDataUrl, brand, handle, customCss, whatsappLink, website, linktree)
 
     const puppeteer = await import('puppeteer')
     const browser = await puppeteer.default.launch({

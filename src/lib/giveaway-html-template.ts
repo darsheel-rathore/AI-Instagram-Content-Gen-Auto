@@ -35,6 +35,8 @@ const ICON_WHATSAPP = `<svg width="12" height="12" viewBox="0 0 24 24" fill="non
 
 const ICON_GLOBE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="#60a5fa" stroke-width="2"/><ellipse cx="12" cy="12" rx="4" ry="9" stroke="#60a5fa" stroke-width="2"/><path d="M3.5 9h17M3.5 15h17" stroke="#60a5fa" stroke-width="1.5"/></svg>`
 
+const ICON_LINKTREE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v10M8 7l4-4 4 4M8 13l4 4 4-4" stroke="#43e660" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="9" y="17" width="6" height="4" rx="1" stroke="#43e660" stroke-width="2"/></svg>`
+
 export function buildGiveawayHtml(
   content: GiveawayPdfContent,
   qrCodeDataUrl: string,
@@ -43,6 +45,7 @@ export function buildGiveawayHtml(
   customCss?: string,
   whatsappLink?: string,
   website?: string,
+  linktree?: string,
 ): string {
   const { title, subtitle, intro, sections = [], reflectionQuestions = [], closingNote, ctaText } = content
 
@@ -67,6 +70,9 @@ export function buildGiveawayHtml(
     : ''
   const websiteHref = website
     ? (website.startsWith('http') ? website : `https://${website}`)
+    : ''
+  const linktreeHref = linktree
+    ? (linktree.startsWith('http') ? linktree : `https://${linktree}`)
     : ''
 
   return `<!DOCTYPE html>
@@ -440,6 +446,10 @@ export function buildGiveawayHtml(
       ${websiteHref ? `<a href="${escAttr(websiteHref)}" class="footer-link">
         ${ICON_GLOBE}
         <span>${esc(shortUrl(websiteHref))}</span>
+      </a>` : ''}
+      ${linktreeHref ? `<a href="${escAttr(linktreeHref)}" class="footer-link">
+        ${ICON_LINKTREE}
+        <span>${esc(shortUrl(linktreeHref))}</span>
       </a>` : ''}
     </div>
     <img class="footer-qr" src="${qrCodeDataUrl}" alt="Scan to follow on Instagram" />

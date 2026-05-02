@@ -79,18 +79,21 @@ export default function PdfSection({
   const [giveawayHandle, setGiveawayHandle] = useState('themedhachannel')
   const [giveawayWhatsapp, setGiveawayWhatsapp] = useState('')
   const [giveawayWebsite, setGiveawayWebsite] = useState('')
+  const [giveawayLinktree, setGiveawayLinktree] = useState('')
   const cssImportRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     try {
       const brand    = localStorage.getItem('pdf_giveaway_brand')
       const handle   = localStorage.getItem('pdf_giveaway_handle')
-      const whatsapp = localStorage.getItem('pdf_giveaway_whatsapp')
-      const website  = localStorage.getItem('pdf_giveaway_website')
+      const whatsapp  = localStorage.getItem('pdf_giveaway_whatsapp')
+      const website   = localStorage.getItem('pdf_giveaway_website')
+      const linktree  = localStorage.getItem('pdf_giveaway_linktree')
       if (brand)    setGiveawayBrand(brand)
       if (handle)   setGiveawayHandle(handle)
       if (whatsapp) setGiveawayWhatsapp(whatsapp)
       if (website)  setGiveawayWebsite(website)
+      if (linktree) setGiveawayLinktree(linktree)
       const saved = localStorage.getItem('pdf_css_templates')
       if (saved) setCssTemplates(JSON.parse(saved) as PdfTemplateDefinition[])
     } catch { /* ignore */ }
@@ -114,6 +117,11 @@ export default function PdfSection({
   function saveGiveawayWebsite(v: string) {
     setGiveawayWebsite(v)
     localStorage.setItem('pdf_giveaway_website', v)
+  }
+
+  function saveGiveawayLinktree(v: string) {
+    setGiveawayLinktree(v)
+    localStorage.setItem('pdf_giveaway_linktree', v)
   }
 
   const htmlBuiltIns = PDF_TEMPLATES.filter((t) => t.htmlTemplate)
@@ -172,6 +180,7 @@ export default function PdfSection({
     if (tmpl.customCss)    params.set('css', tmpl.customCss)
     if (giveawayWhatsapp)  params.set('whatsapp', giveawayWhatsapp)
     if (giveawayWebsite)   params.set('website', giveawayWebsite)
+    if (giveawayLinktree)  params.set('linktree', giveawayLinktree)
     window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
   }
 
@@ -357,8 +366,18 @@ export default function PdfSection({
                       className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-600/50"
                     />
                   </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-xs text-slate-500 block mb-1">Linktree</label>
+                    <input
+                      type="url"
+                      value={giveawayLinktree}
+                      onChange={(e) => saveGiveawayLinktree(e.target.value)}
+                      placeholder="https://linktr.ee/yourname"
+                      className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-600/50"
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-slate-600">Brand name, handle &amp; QR appear on every page. WhatsApp and website are clickable links in the footer.</p>
+                <p className="text-xs text-slate-600">Brand name, handle &amp; QR appear on every page. WhatsApp, website, and Linktree are clickable links in the footer.</p>
               </div>
             )}
           </div>
