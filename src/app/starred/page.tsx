@@ -270,24 +270,33 @@ export default function StarredPage() {
                     >
                       <Star className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="currentColor" />
                       <span className="text-sm font-semibold text-white truncate min-w-0">{idea.title}</span>
+                      {/* Timestamp — always visible */}
+                      <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/50 text-slate-500 whitespace-nowrap">
+                        {date}
+                      </span>
                       {/* Model chip */}
                       {shortModel && (
                         <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 whitespace-nowrap">
                           {shortModel}
                         </span>
                       )}
-                      {/* Competitor chips */}
+                      {/* Prompt chip */}
+                      {idea.promptName && (
+                        <span className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 whitespace-nowrap max-w-[120px] truncate">
+                          {idea.promptName}
+                        </span>
+                      )}
+                      {/* Creator chips */}
                       {visibleComps.map((c) => (
-                        <span key={c} className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
+                        <span key={c} className="hidden lg:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
                           @{c}
                         </span>
                       ))}
                       {extraComps > 0 && (
-                        <span className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
+                        <span className="hidden lg:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
                           +{extraComps}
                         </span>
                       )}
-                      <span className="text-xs text-slate-600 flex-shrink-0 hidden lg:block ml-1">{date}</span>
                       {isOpen
                         ? <ChevronUp className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />
                         : <ChevronDown className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />}
@@ -335,20 +344,12 @@ export default function StarredPage() {
                   {isOpen && (
                     <div className="border-t border-slate-700/40 px-4 py-4">
                       {/* Metadata chips */}
-                      {(idea.provider || idea.promptName) && (
+                      {idea.provider && (
                         <div className="flex items-center gap-2 flex-wrap mb-3">
-                          {idea.provider && (
-                            <span className="text-xs bg-slate-900/60 border border-slate-800 rounded-md px-2 py-0.5 text-slate-500">
-                              Generated with {idea.provider}
-                              {idea.model ? ` · ${idea.model}` : ''}
-                            </span>
-                          )}
-                          {idea.promptName && (
-                            <span className="text-xs bg-slate-900/60 border border-slate-800 rounded-md px-2 py-0.5 text-slate-500">
-                              Prompt: {idea.promptName}
-                            </span>
-                          )}
-                          <span className="text-xs text-slate-700 sm:hidden">{date}</span>
+                          <span className="text-xs bg-slate-900/60 border border-slate-800 rounded-md px-2 py-0.5 text-slate-500">
+                            Generated with {idea.provider}
+                            {idea.model ? ` · ${idea.model}` : ''}
+                          </span>
                         </div>
                       )}
                       <IdeaContent content={idea.content} />
