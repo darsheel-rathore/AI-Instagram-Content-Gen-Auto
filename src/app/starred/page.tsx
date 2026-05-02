@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react'
 import {
   ArrowLeft, Star, FileText, Loader2, AlertCircle,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Download, RefreshCw,
 } from 'lucide-react'
 import clsx from 'clsx'
 import type { PromptTemplate } from '@/components/PromptFactory'
+import type { PdfContent } from '@/lib/pdf-templates'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,15 @@ interface GenerationRecord {
   model?: string
 }
 
-// ─── Cache helpers ────────────────────────────────────────────────────────────
+interface PdfCacheEntry {
+  content: PdfContent
+  design: string
+  provider: string
+  model: string
+  generatedAt: string
+}
+
+// ─── Server-side cache helpers ────────────────────────────────────────────────
 
 async function loadCache<T>(key: string): Promise<T | null> {
   try {
@@ -56,6 +65,25 @@ async function saveCache(key: string, data: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data }),
   })
+}
+
+// ─── Local PDF content cache (localStorage) ───────────────────────────────────
+
+const LS_PDF_CACHE = 'starred_pdf_cache'
+
+function readPdfCache(): Record<string, PdfCacheEntry> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_PDF_CACHE) : null
+    return raw ? (JSON.parse(raw) as Record<string, PdfCacheEntry>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function writePdfCache(cache: Record<string, PdfCacheEntry>) {
+  try {
+    localStorage.setItem(LS_PDF_CACHE, JSON.stringify(cache))
+  } catch { /* ignore quota errors */ }
 }
 
 // ─── Content renderer ─────────────────────────────────────────────────────────
@@ -96,19 +124,24 @@ function IdeaContent({ content }: { content: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StarredPage() {
-  const [ideas, setIdeas]           = useState<StarredIdea[]>([])
+  const [ideas, setIdeas]             = useState<StarredIdea[]>([])
   const [pdfSettings, setPdfSettings] = useState<PdfSettings>({})
-  const [loading, setLoading]       = useState(true)
-  const [expanded, setExpanded]     = useState<Set<string>>(new Set())
-  const [generatingPdfFor, setGeneratingPdfFor] = useState<string | null>(null)
-  const [pdfErrors, setPdfErrors]   = useState<Record<string, string>>({})
+  const [loading, setLoading]         = useState(true)
+  const [expanded, setExpanded]       = useState<Set<string>>(new Set())
+  const [pdfCache, setPdfCache]       = useState<Record<string, PdfCacheEntry>>({})
+  const [generatingFor, setGeneratingFor] = useState<string | null>(null)
+  const [downloadingFor, setDownloadingFor] = useState<string | null>(null)
+  const [pdfErrors, setPdfErrors]     = useState<Record<string, string>>({})
 
   useEffect(() => {
+    // Load PDF content cache from localStorage (client-only, no API cost)
+    setPdfCache(readPdfCache())
+
     Promise.all([
       loadCache<StarredIdea[]>('starred_ideas'),
       loadCache<PdfSettings>('pdf_settings'),
       loadCache<GenerationRecord[]>('content_ideas'),
-    ]).then(([starredCache, pdfCache, historyCache]) => {
+    ]).then(([starredCache, pdfCacheData, historyCache]) => {
       const historyMap = new Map((historyCache ?? []).map((r) => [r.id, r]))
       const enriched = (starredCache ?? []).map((idea) => {
         if (idea.competitors?.length || !idea.generationId) return idea
@@ -123,7 +156,7 @@ export default function StarredPage() {
         }
       })
       setIdeas(enriched)
-      setPdfSettings(pdfCache ?? {})
+      setPdfSettings(pdfCacheData ?? {})
       setLoading(false)
     })
   }, [])
@@ -132,6 +165,13 @@ export default function StarredPage() {
     setIdeas((prev) => {
       const updated = prev.filter((s) => s.id !== ideaId)
       saveCache('starred_ideas', updated)
+      return updated
+    })
+    // Also evict the PDF cache entry for this idea
+    setPdfCache((prev) => {
+      const updated = { ...prev }
+      delete updated[ideaId]
+      writePdfCache(updated)
       return updated
     })
   }
@@ -145,36 +185,75 @@ export default function StarredPage() {
     })
   }
 
-  const handleGeneratePdf = async (idea: StarredIdea) => {
-    if (generatingPdfFor) return
-    setGeneratingPdfFor(idea.id)
+  // Download from cache — no AI call
+  const handleDownloadPdf = async (idea: StarredIdea) => {
+    const cached = pdfCache[idea.id]
+    if (!cached || downloadingFor || generatingFor) return
+    setDownloadingFor(idea.id)
     setPdfErrors((prev) => { const n = { ...prev }; delete n[idea.id]; return n })
     try {
-      const customPrompt = pdfSettings.templates?.find(
-        (t) => t.id === pdfSettings.selectedId,
-      )?.content
-      const res = await fetch('/api/generate-pdf-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: idea.content,
-          customPrompt: customPrompt ?? undefined,
-          provider: pdfSettings.provider ?? 'gemini',
-          model: pdfSettings.model,
-          ideaTitle: idea.title,
-        }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error as string)
       const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
-      await generateAndDownloadPdf(data, pdfSettings.design ?? 'executive')
+      await generateAndDownloadPdf(cached.content, cached.design)
     } catch (e: unknown) {
       setPdfErrors((prev) => ({
         ...prev,
         [idea.id]: e instanceof Error ? e.message : String(e),
       }))
     } finally {
-      setGeneratingPdfFor(null)
+      setDownloadingFor(null)
+    }
+  }
+
+  // Generate via AI, cache result, then download
+  const handleGeneratePdf = async (idea: StarredIdea) => {
+    if (generatingFor || downloadingFor) return
+    setGeneratingFor(idea.id)
+    setPdfErrors((prev) => { const n = { ...prev }; delete n[idea.id]; return n })
+    try {
+      const customPrompt = pdfSettings.templates?.find(
+        (t) => t.id === pdfSettings.selectedId,
+      )?.content
+      const design = pdfSettings.design ?? 'executive'
+      const provider = pdfSettings.provider ?? 'gemini'
+      const model = pdfSettings.model
+
+      const res = await fetch('/api/generate-pdf-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: idea.content,
+          customPrompt: customPrompt ?? undefined,
+          provider,
+          model,
+          ideaTitle: idea.title,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error as string)
+
+      // Cache the structured content so future downloads skip the AI call
+      const entry: PdfCacheEntry = {
+        content: data as PdfContent,
+        design,
+        provider,
+        model: model ?? 'default',
+        generatedAt: new Date().toISOString(),
+      }
+      setPdfCache((prev) => {
+        const updated = { ...prev, [idea.id]: entry }
+        writePdfCache(updated)
+        return updated
+      })
+
+      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
+      await generateAndDownloadPdf(data, design)
+    } catch (e: unknown) {
+      setPdfErrors((prev) => ({
+        ...prev,
+        [idea.id]: e instanceof Error ? e.message : String(e),
+      }))
+    } finally {
+      setGeneratingFor(null)
     }
   }
 
@@ -183,6 +262,7 @@ export default function StarredPage() {
   const providerLabel = pdfSettings.provider ?? 'gemini'
   const modelLabel    = pdfSettings.model ?? 'default'
   const designLabel   = pdfSettings.design ?? 'executive'
+  const isBusy        = generatingFor !== null || downloadingFor !== null
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] text-white">
@@ -243,7 +323,7 @@ export default function StarredPage() {
             {/* PDF settings summary banner */}
             <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 mb-5 flex items-center gap-3 flex-wrap">
               <FileText className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
-              <span className="text-xs text-slate-500">PDF settings from Ideas tab:</span>
+              <span className="text-xs text-slate-500">PDF settings for new generations:</span>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs bg-slate-800/80 border border-slate-700/50 rounded-md px-2 py-0.5 text-slate-400">
                   {providerLabel}
@@ -264,9 +344,12 @@ export default function StarredPage() {
             </div>
 
             {sorted.map((idea) => {
-              const isOpen      = expanded.has(idea.id)
-              const isGenerating = generatingPdfFor === idea.id
-              const error        = pdfErrors[idea.id]
+              const isOpen         = expanded.has(idea.id)
+              const isGenerating   = generatingFor === idea.id
+              const isDownloading  = downloadingFor === idea.id
+              const cached         = pdfCache[idea.id]
+              const error          = pdfErrors[idea.id]
+
               const date = new Date(idea.starredAt).toLocaleDateString(undefined, {
                 day: 'numeric', month: 'short', year: 'numeric',
               })
@@ -276,8 +359,13 @@ export default function StarredPage() {
                 .replace('gpt-', 'GPT-')
                 .replace('-latest', '')
               const competitorList = idea.competitors ?? []
-              const visibleComps = competitorList.slice(0, 2)
-              const extraComps = competitorList.length - visibleComps.length
+              const visibleComps   = competitorList.slice(0, 2)
+              const extraComps     = competitorList.length - visibleComps.length
+
+              // Cached PDF metadata for display
+              const cachedDate = cached
+                ? new Date(cached.generatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                : null
 
               return (
                 <div
@@ -292,7 +380,7 @@ export default function StarredPage() {
                     >
                       <Star className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="currentColor" />
                       <span className="text-sm font-semibold text-white truncate min-w-0">{idea.title}</span>
-                      {/* Timestamp — always visible */}
+                      {/* Timestamp */}
                       <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/50 text-slate-500 whitespace-nowrap">
                         {date}
                       </span>
@@ -333,26 +421,76 @@ export default function StarredPage() {
                       >
                         <Star className="w-3.5 h-3.5" fill="currentColor" />
                       </button>
-                      {/* PDF */}
-                      <button
-                        onClick={() => handleGeneratePdf(idea)}
-                        disabled={generatingPdfFor !== null}
-                        title="Generate PDF"
-                        className={clsx(
-                          'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
-                          isGenerating
-                            ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
-                            : generatingPdfFor !== null
-                            ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
-                            : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
-                        )}
-                      >
-                        {isGenerating
-                          ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
-                          : <><FileText className="w-3 h-3" />PDF</>}
-                      </button>
+
+                      {cached ? (
+                        /* ── Cached: Download + Regenerate ── */
+                        <>
+                          <button
+                            onClick={() => handleDownloadPdf(idea)}
+                            disabled={isBusy}
+                            title={`Download PDF · ${cached.design} · ${cached.provider} · ${cachedDate}`}
+                            className={clsx(
+                              'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
+                              isDownloading
+                                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 cursor-not-allowed'
+                                : isBusy
+                                ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
+                                : 'border-emerald-700/50 text-emerald-400 hover:border-emerald-500/60 hover:bg-emerald-500/10',
+                            )}
+                          >
+                            {isDownloading
+                              ? <><Loader2 className="w-3 h-3 animate-spin" />Downloading...</>
+                              : <><Download className="w-3 h-3" />Download PDF</>}
+                          </button>
+                          <button
+                            onClick={() => handleGeneratePdf(idea)}
+                            disabled={isBusy}
+                            title="Regenerate PDF with current settings (uses AI tokens)"
+                            className={clsx(
+                              'p-1.5 rounded-lg border transition-all',
+                              isGenerating
+                                ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
+                                : isBusy
+                                ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
+                                : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
+                            )}
+                          >
+                            {isGenerating
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <RefreshCw className="w-3.5 h-3.5" />}
+                          </button>
+                        </>
+                      ) : (
+                        /* ── Not cached: Generate ── */
+                        <button
+                          onClick={() => handleGeneratePdf(idea)}
+                          disabled={isBusy}
+                          title="Generate PDF (uses AI tokens)"
+                          className={clsx(
+                            'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
+                            isGenerating
+                              ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
+                              : isBusy
+                              ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
+                              : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
+                          )}
+                        >
+                          {isGenerating
+                            ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
+                            : <><FileText className="w-3 h-3" />Generate PDF</>}
+                        </button>
+                      )}
                     </div>
                   </div>
+
+                  {/* ── Cached PDF info strip ── */}
+                  {cached && (
+                    <div className="px-4 pb-2 flex items-center gap-2">
+                      <span className="text-[10px] text-slate-600">
+                        PDF ready · {cached.design} · {cached.provider} · generated {cachedDate}
+                      </span>
+                    </div>
+                  )}
 
                   {/* ── Error ── */}
                   {error && (
@@ -365,7 +503,6 @@ export default function StarredPage() {
                   {/* ── Expanded content ── */}
                   {isOpen && (
                     <div className="border-t border-slate-700/40 px-4 py-4">
-                      {/* Metadata chips */}
                       {idea.provider && (
                         <div className="flex items-center gap-2 flex-wrap mb-3">
                           <span className="text-xs bg-slate-900/60 border border-slate-800 rounded-md px-2 py-0.5 text-slate-500">
