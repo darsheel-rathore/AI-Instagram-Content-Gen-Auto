@@ -19,6 +19,7 @@ interface StarredIdea {
   provider?: string
   model?: string
   promptName?: string
+  competitors?: string[]
 }
 
 interface PdfSettings {
@@ -166,7 +167,7 @@ export default function StarredPage() {
 
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#0a0f1e]/95 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
           <a
             href="/"
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
@@ -187,7 +188,7 @@ export default function StarredPage() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
 
         {/* ── Loading ── */}
         {loading && (
@@ -244,9 +245,17 @@ export default function StarredPage() {
               const isOpen      = expanded.has(idea.id)
               const isGenerating = generatingPdfFor === idea.id
               const error        = pdfErrors[idea.id]
-              const date         = new Date(idea.starredAt).toLocaleDateString(undefined, {
+              const date = new Date(idea.starredAt).toLocaleDateString(undefined, {
                 day: 'numeric', month: 'short', year: 'numeric',
               })
+              const shortModel = idea.model
+                ?.replace('claude-', 'Claude ')
+                .replace('gemini-', 'Gemini ')
+                .replace('gpt-', 'GPT-')
+                .replace('-latest', '')
+              const competitorList = idea.competitors ?? []
+              const visibleComps = competitorList.slice(0, 2)
+              const extraComps = competitorList.length - visibleComps.length
 
               return (
                 <div
@@ -257,11 +266,28 @@ export default function StarredPage() {
                   <div className="flex items-center gap-3 px-4 py-3">
                     <button
                       onClick={() => toggleExpand(idea.id)}
-                      className="flex-1 flex items-center gap-3 min-w-0 text-left"
+                      className="flex-1 flex items-center gap-2 min-w-0 text-left"
                     >
                       <Star className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="currentColor" />
-                      <span className="text-sm font-semibold text-white truncate">{idea.title}</span>
-                      <span className="text-xs text-slate-600 flex-shrink-0 hidden sm:block">{date}</span>
+                      <span className="text-sm font-semibold text-white truncate min-w-0">{idea.title}</span>
+                      {/* Model chip */}
+                      {shortModel && (
+                        <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 whitespace-nowrap">
+                          {shortModel}
+                        </span>
+                      )}
+                      {/* Competitor chips */}
+                      {visibleComps.map((c) => (
+                        <span key={c} className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
+                          @{c}
+                        </span>
+                      ))}
+                      {extraComps > 0 && (
+                        <span className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
+                          +{extraComps}
+                        </span>
+                      )}
+                      <span className="text-xs text-slate-600 flex-shrink-0 hidden lg:block ml-1">{date}</span>
                       {isOpen
                         ? <ChevronUp className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />
                         : <ChevronDown className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />}

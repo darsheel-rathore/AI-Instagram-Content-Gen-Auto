@@ -42,6 +42,7 @@ type StarredIdea = {
   provider?: string
   model?: string
   promptName?: string
+  competitors?: string[]
 }
 type SortBy = 'views' | 'likes' | 'comments'
 
@@ -949,6 +950,7 @@ export default function Dashboard() {
             provider: selectedIdea?.provider,
             model: selectedIdea?.model,
             promptName: selectedIdea?.promptName,
+            competitors: selectedIdea?.competitorUsernames,
           },
         ]
       }

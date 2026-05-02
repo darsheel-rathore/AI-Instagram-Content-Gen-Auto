@@ -261,7 +261,7 @@ export default function SettingsPage() {
     <main className="min-h-screen bg-[#0a0f1e]">
       {/* Header */}
       <header className="border-b border-slate-800 bg-[#0a0f1e]/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <a
             href="/"
             className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors text-sm"
@@ -274,7 +274,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
 
         {/* Profile */}
         <section>

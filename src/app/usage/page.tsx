@@ -423,7 +423,7 @@ export default function UsagePage() {
 
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#0a0f1e]/95 backdrop-blur-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
           <a
             href="/"
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
@@ -447,7 +447,7 @@ export default function UsagePage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-7">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-7">
 
         {/* ── Period filter ── */}
         <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-xl p-1 w-fit flex-wrap">
