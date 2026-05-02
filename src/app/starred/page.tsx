@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Star, ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react'
@@ -94,6 +95,7 @@ function IdeaContent({ content }: { content: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StarredPage() {
+  const router = useRouter()
   const [ideas, setIdeas]             = useState<StarredIdea[]>([])
   const [pdfSettings, setPdfSettings] = useState<PdfSettings>({})
   const [loading, setLoading]         = useState(true)
@@ -155,13 +157,13 @@ export default function StarredPage() {
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#0a0f1e]/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <a
-            href="/"
+          <button
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="text-sm">Back</span>
-          </a>
+          </button>
           <div className="h-4 w-px bg-slate-700" />
           <Star className="w-4 h-4 text-amber-400" fill="currentColor" />
           <span className="text-sm font-semibold text-white">Starred Ideas</span>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, FileText, Download, RefreshCw, Trash2,
   Loader2, AlertCircle,
@@ -27,6 +28,7 @@ async function loadCache<T>(key: string): Promise<T | null> {
 }
 
 export default function GeneratedPdfsPage() {
+  const router = useRouter()
   const [pdfRecords, setPdfRecords]           = useState<PdfRecord[]>([])
   const [pdfSettings, setPdfSettings]         = useState<PdfSettings>({})
   const [downloadingId, setDownloadingId]     = useState<string | null>(null)
@@ -129,13 +131,13 @@ export default function GeneratedPdfsPage() {
       {/* Sticky header */}
       <div className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#0a0f1e]/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <a
-            href="/"
+          <button
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="text-sm">Back</span>
-          </a>
+          </button>
           <div className="h-4 w-px bg-slate-700" />
           <FileText className="w-4 h-4 text-violet-400" />
           <span className="text-sm font-semibold text-white">Generated PDFs</span>

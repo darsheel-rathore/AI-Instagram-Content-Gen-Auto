@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Camera, Clock, Database, Trash2,
   Download, Upload, AlertTriangle, Check, Loader2, Shield,
@@ -69,6 +70,7 @@ function Row({
 }
 
 export default function SettingsPage() {
+  const router = useRouter()
   const [settings, setSettings] = useState<AppSettings>(DEFAULTS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -262,13 +264,13 @@ export default function SettingsPage() {
       {/* Header */}
       <header className="border-b border-slate-800 bg-[#0a0f1e]/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          <a
-            href="/"
+          <button
+            onClick={() => router.back()}
             className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors text-sm"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Dashboard</span>
-          </a>
+            <span className="hidden sm:inline">Back</span>
+          </button>
           <span className="text-slate-700">/</span>
           <h1 className="text-sm font-semibold text-white">Settings</h1>
         </div>
