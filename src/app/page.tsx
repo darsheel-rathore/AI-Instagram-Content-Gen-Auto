@@ -10,17 +10,15 @@ import ScrapeProgress from '@/components/ScrapeProgress'
 import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
 import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
-import PdfSection from '@/components/PdfSection'
 import MasterclassTab from '@/components/MasterclassTab'
 import StoryTab from '@/components/StoryTab'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, FileText, BarChart2, Star, GraduationCap, Layers, Download,
+  Settings, LogOut, BarChart2, Star, GraduationCap, Layers,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { loadPdfRecords, savePdfRecords, type PdfRecord } from '@/lib/pdf-records'
 
 type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass' | 'story'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
@@ -273,14 +271,6 @@ export default function Dashboard() {
   const [includeMyLowReels, setIncludeMyLowReels] = useState(true)
   const [includeCompetitorData, setIncludeCompetitorData] = useState(true)
 
-  // PDF export settings
-  const [pdfPromptTemplates, setPdfPromptTemplates] = useState<PromptTemplate[]>([])
-  const [selectedPdfPromptId, setSelectedPdfPromptId] = useState<string | null>(null)
-  const [pdfProvider, setPdfProvider] = useState<AIProvider>('gemini')
-  const [pdfModel, setPdfModel] = useState<string>(DEFAULT_MODEL['gemini'])
-  const [selectedPdfDesign, setSelectedPdfDesign] = useState<string>('executive')
-  const [pdfRecords, setPdfRecords] = useState<PdfRecord[]>([])
-
   // Starred ideas
   const [starredIdeas, setStarredIdeas] = useState<StarredIdea[]>([])
 
@@ -311,11 +301,6 @@ export default function Dashboard() {
   const selectedAnalysisProviderRef = useRef<AIProvider>('gemini')
   const selectedAnalysisModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
   const ideaDataSourcesRef = useRef<Set<string>>(new Set(['analysis']))
-  const pdfPromptTemplatesRef = useRef<PromptTemplate[]>([])
-  const selectedPdfPromptIdRef = useRef<string | null>(null)
-  const pdfProviderRef = useRef<AIProvider>('gemini')
-  const pdfModelRef = useRef<string>(DEFAULT_MODEL['gemini'])
-  const selectedPdfDesignRef = useRef<string>('executive')
   const includeMyTopReelsRef = useRef(true)
   const includeMyLowReelsRef = useRef(true)
   const includeCompetitorDataRef = useRef(true)
@@ -337,11 +322,6 @@ export default function Dashboard() {
   useEffect(() => { includeMyTopReelsRef.current = includeMyTopReels }, [includeMyTopReels])
   useEffect(() => { includeMyLowReelsRef.current = includeMyLowReels }, [includeMyLowReels])
   useEffect(() => { includeCompetitorDataRef.current = includeCompetitorData }, [includeCompetitorData])
-  useEffect(() => { pdfPromptTemplatesRef.current = pdfPromptTemplates }, [pdfPromptTemplates])
-  useEffect(() => { selectedPdfPromptIdRef.current = selectedPdfPromptId }, [selectedPdfPromptId])
-  useEffect(() => { pdfProviderRef.current = pdfProvider }, [pdfProvider])
-  useEffect(() => { pdfModelRef.current = pdfModel }, [pdfModel])
-  useEffect(() => { selectedPdfDesignRef.current = selectedPdfDesign }, [selectedPdfDesign])
   useEffect(() => { compFilterReelsRef.current = compFilterReels }, [compFilterReels])
   useEffect(() => { compFilterDaysRef.current = compFilterDays }, [compFilterDays])
   useEffect(() => { compFilterSortRef.current = compFilterSort }, [compFilterSort])
@@ -406,9 +386,8 @@ export default function Dashboard() {
       loadCache<{ templates: PromptTemplate[]; selectedId: string | null; provider: AIProvider; model?: string }>('analysis_settings'),
       loadCache<{ selectedComps: string[]; selectedReelIds: Record<string, string[]> }>('idea_selection'),
       loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number; displayName?: string }>('settings'),
-      loadCache<{ templates?: PromptTemplate[]; selectedId?: string | null; provider?: AIProvider; model?: string; design?: string }>('pdf_settings'),
       loadCache<StarredIdea[]>('starred_ideas'),
-    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache, pdfCache, starredCache]) => {
+    ]).then(([myCache, compCache, ideasCache, expandCache, promptCache, analysisCache, ideaSelCache, settingsCache, starredCache]) => {
       if (settingsCache?.instagramUsername) {
         setMyUsername(settingsCache.instagramUsername)
         myUsernameRef.current = settingsCache.instagramUsername
@@ -462,17 +441,7 @@ export default function Dashboard() {
         }
         setSelectedCompReelIds(hydrated)
       }
-      if (pdfCache?.templates?.length) {
-        setPdfPromptTemplates(pdfCache.templates)
-        setSelectedPdfPromptId(pdfCache.selectedId ?? pdfCache.templates[0].id)
-      }
-      if (pdfCache?.provider) {
-        setPdfProvider(pdfCache.provider)
-        setPdfModel(pdfCache.model ?? DEFAULT_MODEL[pdfCache.provider])
-      }
-      if (pdfCache?.design) setSelectedPdfDesign(pdfCache.design)
       if (starredCache?.length) setStarredIdeas(starredCache)
-      setPdfRecords(loadPdfRecords())
       setCacheLoading(false)
     })
   }, [])
@@ -853,59 +822,6 @@ export default function Dashboard() {
     saveCache('analysis_settings', { templates: analysisPromptTemplatesRef.current, selectedId: selectedAnalysisPromptIdRef.current, provider: selectedAnalysisProviderRef.current, model: m })
   }, [])
 
-  // --- PDF prompt factory ---------------------------------------------------
-  const savePdfPromptTemplate = useCallback((template: PromptTemplate) => {
-    setPdfPromptTemplates((prev) => {
-      const exists = prev.some((t) => t.id === template.id)
-      const updated = exists ? prev.map((t) => t.id === template.id ? template : t) : [...prev, template]
-      const selId = selectedPdfPromptIdRef.current ?? template.id
-      if (!selectedPdfPromptIdRef.current) setSelectedPdfPromptId(template.id)
-      saveCache('pdf_settings', { templates: updated, selectedId: selId, provider: pdfProviderRef.current, model: pdfModelRef.current, design: selectedPdfDesignRef.current })
-      return updated
-    })
-  }, [])
-
-  const deletePdfPromptTemplate = useCallback((id: string) => {
-    setPdfPromptTemplates((prev) => {
-      const updated = prev.filter((t) => t.id !== id)
-      const newSel = selectedPdfPromptIdRef.current === id ? (updated[0]?.id ?? null) : selectedPdfPromptIdRef.current
-      setSelectedPdfPromptId(newSel)
-      saveCache('pdf_settings', { templates: updated, selectedId: newSel, provider: pdfProviderRef.current, model: pdfModelRef.current, design: selectedPdfDesignRef.current })
-      return updated
-    })
-  }, [])
-
-  const selectPdfPromptTemplate = useCallback((id: string) => {
-    setSelectedPdfPromptId(id)
-    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: id, provider: pdfProviderRef.current, model: pdfModelRef.current, design: selectedPdfDesignRef.current })
-  }, [])
-
-  const changePdfProvider = useCallback((p: AIProvider) => {
-    const m = DEFAULT_MODEL[p]
-    setPdfProvider(p)
-    setPdfModel(m)
-    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: p, model: m, design: selectedPdfDesignRef.current })
-  }, [])
-
-  const changePdfModel = useCallback((m: string) => {
-    setPdfModel(m)
-    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: pdfProviderRef.current, model: m, design: selectedPdfDesignRef.current })
-  }, [])
-
-  const changePdfDesign = useCallback((id: string) => {
-    setSelectedPdfDesign(id)
-    saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: pdfProviderRef.current, model: pdfModelRef.current, design: id })
-  }, [])
-
-  // --- PDF record generated from PdfSection --------------------------------
-  function handlePdfGenerated(record: PdfRecord) {
-    setPdfRecords((prev) => {
-      const updated = [record, ...prev]
-      savePdfRecords(updated)
-      return updated
-    })
-  }
-
   // --- Toggle star ----------------------------------------------------------
   function handleToggleStar(ideaTitle: string, sectionContent: string) {
     const selectedIdea = ideasHistory.find((r) => r.id === selectedIdeaId)
@@ -1182,19 +1098,6 @@ export default function Dashboard() {
                     {starredIdeas.length > 0 && (
                       <span className="ml-auto text-xs bg-amber-500/20 text-amber-400 rounded-full px-1.5 py-0.5 leading-none">
                         {starredIdeas.length}
-                      </span>
-                    )}
-                  </a>
-                  <a
-                    href="/generated-pdfs"
-                    onClick={() => setProfileOpen(false)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 transition-colors"
-                  >
-                    <FileText className="w-4 h-4 flex-shrink-0" />
-                    <span>Generated PDFs</span>
-                    {pdfRecords.length > 0 && (
-                      <span className="ml-auto text-xs bg-violet-500/20 text-violet-400 rounded-full px-1.5 py-0.5 leading-none">
-                        {pdfRecords.length}
                       </span>
                     )}
                   </a>
@@ -1911,24 +1814,6 @@ export default function Dashboard() {
               onSave={savePromptTemplate}
               onDelete={deletePromptTemplate}
             />
-
-            {/* -- PDF Export section -- */}
-            <div id="pdf-section">
-            <PdfSection
-              selectedDesign={selectedPdfDesign}
-              onDesignChange={changePdfDesign}
-              provider={pdfProvider}
-              model={pdfModel}
-              onProviderChange={changePdfProvider}
-              onModelChange={changePdfModel}
-              templates={pdfPromptTemplates}
-              selectedPromptId={selectedPdfPromptId}
-              onPromptSelect={selectPdfPromptTemplate}
-              onPromptSave={savePdfPromptTemplate}
-              onPromptDelete={deletePdfPromptTemplate}
-              onPdfGenerated={handlePdfGenerated}
-            />
-            </div>
 
             {(myReels.length === 0 || competitorUsernames.length === 0) && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-4 mb-6 text-sm">
