@@ -227,6 +227,10 @@ export async function POST(req: NextRequest) {
   }
 
   // User message = raw data only. System prompt = user's instructions (owns the format entirely).
+  // Append a minimal format requirement so the app can detect and star individual ideas.
+  const FORMAT_SUFFIX = `\n\n---\nFORMAT REQUIREMENT (do not skip): Label every content idea with a header on its own line — "REEL IDEA #1", "REEL IDEA #2", etc. Use this exact label regardless of the style or structure you use for the rest of the idea.`
+  const fullSystemPrompt = systemPrompt.trimEnd() + FORMAT_SUFFIX
+
   const dataContext = buildDataContext(myReels, competitorReels, dataSources, includeTopReels, includeLowReels, includeCompetitorData)
 
   log(`━━━ Generate Ideas — provider: ${provider} | model: ${model} | dataSources: ${dataSources.join(', ')} | topReels: ${includeTopReels} | lowReels: ${includeLowReels} | competitors: ${includeCompetitorData}`)
@@ -236,9 +240,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const generators: Record<Provider, () => Promise<ProviderResult>> = {
-      anthropic: () => generateWithAnthropic(dataContext, systemPrompt, model),
-      openai: () => generateWithOpenAI(dataContext, systemPrompt, model),
-      gemini: () => generateWithGemini(dataContext, systemPrompt, model),
+      anthropic: () => generateWithAnthropic(dataContext, fullSystemPrompt, model),
+      openai: () => generateWithOpenAI(dataContext, fullSystemPrompt, model),
+      gemini: () => generateWithGemini(dataContext, fullSystemPrompt, model),
     }
     const result = await generators[provider]()
 
