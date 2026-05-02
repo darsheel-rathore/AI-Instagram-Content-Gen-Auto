@@ -17,6 +17,17 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
+const MODEL_PREFIXES: Record<Provider, string[]> = {
+  anthropic: ['claude-'],
+  openai: ['gpt-', 'o1-', 'o3-'],
+  gemini: ['gemini-'],
+}
+
+function resolveModel(reqModel: string | undefined, provider: Provider): string {
+  if (reqModel && MODEL_PREFIXES[provider].some((p) => reqModel.startsWith(p))) return reqModel
+  return DEFAULT_MODELS[provider]
+}
+
 const SYSTEM_PROMPT = `You are an expert presentation designer creating a premium masterclass slide deck.
 
 Return a JSON object with a "slides" array. Each slide uses ONE of these exact type structures — include only the fields listed for that type:
@@ -108,7 +119,7 @@ export async function POST(req: NextRequest) {
   if (!title?.trim()) return NextResponse.json({ error: 'Title required' }, { status: 400 })
 
   const provider = (reqProvider ?? 'gemini') as Provider
-  const model = reqModel ?? DEFAULT_MODELS[provider]
+  const model = resolveModel(reqModel, provider)
 
   const keyMap: Record<Provider, string | undefined> = {
     anthropic: process.env.ANTHROPIC_API_KEY,

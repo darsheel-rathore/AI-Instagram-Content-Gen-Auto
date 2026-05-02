@@ -113,6 +113,17 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
+const MODEL_PREFIXES: Record<Provider, string[]> = {
+  anthropic: ['claude-'],
+  openai: ['gpt-', 'o1-', 'o3-'],
+  gemini: ['gemini-'],
+}
+
+function resolveModel(reqModel: string | undefined, provider: Provider): string {
+  if (reqModel && MODEL_PREFIXES[provider].some((p) => reqModel.startsWith(p))) return reqModel
+  return DEFAULT_MODELS[provider]
+}
+
 async function generateWithAnthropic(prompt: string, systemPrompt: string, model: string): Promise<ProviderResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
@@ -204,7 +215,7 @@ export async function POST(req: NextRequest) {
   } = await req.json()
 
   const provider = ((requestedProvider ?? process.env.AI_PROVIDER ?? 'gemini') as Provider)
-  const model = requestedModel ?? DEFAULT_MODELS[provider]
+  const model = resolveModel(requestedModel, provider)
   const dataSources = ((requestedSources?.length ? requestedSources : ['analysis']) as DataSource[])
 
   const keyMap: Record<Provider, string | undefined> = {

@@ -17,6 +17,17 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
+const MODEL_PREFIXES: Record<Provider, string[]> = {
+  anthropic: ['claude-'],
+  openai: ['gpt-', 'o1-', 'o3-'],
+  gemini: ['gemini-'],
+}
+
+function resolveModel(reqModel: string | undefined, provider: Provider): string {
+  if (reqModel && MODEL_PREFIXES[provider].some((p) => reqModel.startsWith(p))) return reqModel
+  return DEFAULT_MODELS[provider]
+}
+
 const SYSTEM_PROMPT = `You are a professional content strategy consultant formatting Instagram reel ideas into structured PDF documents.
 
 Convert the provided reel idea content into a clean JSON structure for a high-quality PDF report. This document will be presented to clients or used for strategic content planning.
@@ -148,7 +159,7 @@ export async function POST(req: NextRequest) {
 
   const isGiveaway = template === 'giveaway'
   const provider = ((reqProvider ?? 'gemini') as Provider)
-  const model = reqModel ?? DEFAULT_MODELS[provider]
+  const model = resolveModel(reqModel, provider)
 
   const keyMap: Record<Provider, string | undefined> = {
     anthropic: process.env.ANTHROPIC_API_KEY,
