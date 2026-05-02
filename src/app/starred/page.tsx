@@ -228,7 +228,7 @@ export default function StarredPage() {
               Click the star icon next to any Reel Idea in the Content Ideas tab to save it here.
             </p>
             <a
-              href="/"
+              href="/?tab=ideas"
               className="mt-6 inline-block bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 transition-colors text-sm font-medium px-5 py-2.5 rounded-xl"
             >
               Go to Content Ideas
@@ -256,7 +256,7 @@ export default function StarredPage() {
                 </span>
               </div>
               <a
-                href="/"
+                href="/?tab=ideas#pdf-section"
                 className="ml-auto text-xs text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
               >
                 Edit in Ideas tab →

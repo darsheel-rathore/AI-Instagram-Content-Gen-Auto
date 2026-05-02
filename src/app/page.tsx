@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import type { Reel } from '@/lib/types'
 import ReelCard from '@/components/ReelCard'
 import MetricsOverview from '@/components/MetricsOverview'
@@ -179,7 +180,21 @@ const SCRAPE_MSG: Record<ScrapeState, string> = {
 // --- Page ---------------------------------------------------------------------
 
 export default function Dashboard() {
-  const [tab, setTab] = useState<Tab>('mine')
+  const searchParams = useSearchParams()
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab')
+    return (t as Tab) ?? 'mine'
+  })
+
+  useEffect(() => {
+    const hash = window.location.hash
+    if (hash) {
+      setTimeout(() => {
+        const el = document.querySelector(hash)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 300)
+    }
+  }, [])
 
   // My reels
   const [cacheLoading, setCacheLoading] = useState(true)
@@ -1924,6 +1939,7 @@ export default function Dashboard() {
             />
 
             {/* -- PDF Export section -- */}
+            <div id="pdf-section">
             <PdfSection
               selectedDesign={selectedPdfDesign}
               onDesignChange={changePdfDesign}
@@ -1937,6 +1953,7 @@ export default function Dashboard() {
               onPromptSave={savePdfPromptTemplate}
               onPromptDelete={deletePdfPromptTemplate}
             />
+            </div>
 
             {(myReels.length === 0 || competitorUsernames.length === 0) && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-4 mb-6 text-sm">
