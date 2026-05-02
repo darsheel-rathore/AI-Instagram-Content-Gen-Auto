@@ -1180,6 +1180,19 @@ export default function Dashboard() {
                     )}
                   </a>
                   <a
+                    href="/generated-pdfs"
+                    onClick={() => setProfileOpen(false)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 transition-colors"
+                  >
+                    <FileText className="w-4 h-4 flex-shrink-0" />
+                    <span>Generated PDFs</span>
+                    {pdfRecords.length > 0 && (
+                      <span className="ml-auto text-xs bg-violet-500/20 text-violet-400 rounded-full px-1.5 py-0.5 leading-none">
+                        {pdfRecords.length}
+                      </span>
+                    )}
+                  </a>
+                  <a
                     href="/settings"
                     onClick={() => setProfileOpen(false)}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
