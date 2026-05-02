@@ -288,12 +288,12 @@ export default function StarredPage() {
                       )}
                       {/* Creator chips */}
                       {visibleComps.map((c) => (
-                        <span key={c} className="hidden lg:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
+                        <span key={c} className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
                           @{c}
                         </span>
                       ))}
                       {extraComps > 0 && (
-                        <span className="hidden lg:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
+                        <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
                           +{extraComps}
                         </span>
                       )}

@@ -145,7 +145,7 @@ async function loadCache<T>(key: string): Promise<T | null> {
 function formatGenDate(iso: string) {
   const d = new Date(iso)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-    ' Â· ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
 function timeAgo(iso: string) {
@@ -1253,7 +1253,7 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-xl font-bold text-white">My Reels</h2>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-slate-500 text-sm">Last 30 days Â· @{myUsername}</p>
+                  <p className="text-slate-500 text-sm">Last 30 days · @{myUsername}</p>
                   {myLastSynced && (
                     <span className="flex items-center gap-1 text-xs text-slate-600">
                       <Clock className="w-3 h-3" /> {timeAgo(myLastSynced)}
@@ -1359,7 +1359,7 @@ export default function Dashboard() {
                 </div>
                 <span className="text-xs text-slate-600 flex items-center gap-1.5">
                   <Zap className="w-3 h-3 text-amber-600" />
-                  More reels Â· longer window = more Apify credits consumed
+                  More reels · longer window = more Apify credits consumed
                 </span>
               </div>
 
@@ -1450,7 +1450,7 @@ export default function Dashboard() {
                         {s}
                       </button>
                     ))}
-                    <span className="text-xs text-slate-600">Â· Shares &amp; saves not available via public API</span>
+                    <span className="text-xs text-slate-600">· Shares &amp; saves not available via public API</span>
                   </div>
                 </div>
               </div>
@@ -1895,7 +1895,7 @@ export default function Dashboard() {
                                     />
                                   )}
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-slate-300">{reel.views.toLocaleString()} views Â· {reel.likes.toLocaleString()} likes</p>
+                                    <p className="text-xs text-slate-300">{reel.views.toLocaleString()} views · {reel.likes.toLocaleString()} likes</p>
                                     <p className="text-xs text-slate-600 truncate">{reel.caption.slice(0, 100)}</p>
                                   </div>
                                   {reel.reelAnalysis ? (
