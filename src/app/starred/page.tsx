@@ -30,6 +30,14 @@ interface PdfSettings {
   design?: string
 }
 
+interface GenerationRecord {
+  id: string
+  competitorUsernames?: string[]
+  promptName?: string
+  provider?: string
+  model?: string
+}
+
 // ─── Cache helpers ────────────────────────────────────────────────────────────
 
 async function loadCache<T>(key: string): Promise<T | null> {
@@ -99,8 +107,22 @@ export default function StarredPage() {
     Promise.all([
       loadCache<StarredIdea[]>('starred_ideas'),
       loadCache<PdfSettings>('pdf_settings'),
-    ]).then(([starredCache, pdfCache]) => {
-      setIdeas(starredCache ?? [])
+      loadCache<GenerationRecord[]>('content_ideas'),
+    ]).then(([starredCache, pdfCache, historyCache]) => {
+      const historyMap = new Map((historyCache ?? []).map((r) => [r.id, r]))
+      const enriched = (starredCache ?? []).map((idea) => {
+        if (idea.competitors?.length || !idea.generationId) return idea
+        const rec = historyMap.get(idea.generationId)
+        if (!rec) return idea
+        return {
+          ...idea,
+          competitors: rec.competitorUsernames ?? idea.competitors,
+          promptName: idea.promptName ?? rec.promptName,
+          provider: idea.provider ?? rec.provider,
+          model: idea.model ?? rec.model,
+        }
+      })
+      setIdeas(enriched)
       setPdfSettings(pdfCache ?? {})
       setLoading(false)
     })
