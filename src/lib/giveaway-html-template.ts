@@ -91,10 +91,8 @@ export function buildGiveawayHtml(
       background: #ffffff;
       color: #374151;
       width: 210mm;
-      /* Extra top padding = header height (~108px) + 24px breathing room */
-      padding-top: 132px;
-      /* Extra bottom padding = footer height (~72px) + 16px breathing room */
-      padding-bottom: 88px;
+      /* Extra bottom padding = footer height (~60px) + 16px breathing room */
+      padding-bottom: 76px;
     }
 
     /* Watermark — position:fixed repeats on every PDF page */
@@ -115,13 +113,10 @@ export function buildGiveawayHtml(
       overflow: hidden;
     }
 
-    /* ── Header band — fixed so it repeats on every page ── */
+    /* ── Header band — static, first page only ── */
     .header {
-      position: fixed;
-      top: 0; left: 0; right: 0;
       background: #0f1729;
       padding: 18px 60px 14px;
-      z-index: 10;
     }
 
     .header-name {
@@ -373,8 +368,9 @@ export function buildGiveawayHtml(
 
     .footer-links {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
+      flex-direction: row;
+      align-items: center;
+      gap: 14px;
       margin-left: auto;
       margin-right: 14px;
     }
@@ -386,6 +382,7 @@ export function buildGiveawayHtml(
       font-size: 10px;
       color: #6b7280;
       text-decoration: none;
+      white-space: nowrap;
     }
 
     .footer-qr {
