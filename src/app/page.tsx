@@ -20,7 +20,7 @@ import {
   Settings, LogOut, FileText, BarChart2, Star, GraduationCap, Layers, Download,
 } from 'lucide-react'
 import clsx from 'clsx'
-import type { PdfContent } from '@/lib/pdf-templates'
+import { loadPdfRecords, savePdfRecords, type PdfRecord } from '@/lib/pdf-records'
 
 type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass' | 'story'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
@@ -273,10 +273,7 @@ export default function Dashboard() {
   const [pdfProvider, setPdfProvider] = useState<AIProvider>('gemini')
   const [pdfModel, setPdfModel] = useState<string>(DEFAULT_MODEL['gemini'])
   const [selectedPdfDesign, setSelectedPdfDesign] = useState<string>('executive')
-  const [generatingPdfFor, setGeneratingPdfFor] = useState<string | null>(null)
-  const [downloadingPdfFor, setDownloadingPdfFor] = useState<string | null>(null)
-  const [pdfContentCache, setPdfContentCache] = useState<Record<string, object>>({})
-  const [pdfErrors, setPdfErrors] = useState<Record<string, string>>({})
+  const [pdfRecords, setPdfRecords] = useState<PdfRecord[]>([])
 
   // Starred ideas
   const [starredIdeas, setStarredIdeas] = useState<StarredIdea[]>([])
@@ -469,10 +466,7 @@ export default function Dashboard() {
       }
       if (pdfCache?.design) setSelectedPdfDesign(pdfCache.design)
       if (starredCache?.length) setStarredIdeas(starredCache)
-      try {
-        const raw = localStorage.getItem('main_pdf_cache')
-        if (raw) setPdfContentCache(JSON.parse(raw) as Record<string, object>)
-      } catch { /* ignore */ }
+      setPdfRecords(loadPdfRecords())
       setCacheLoading(false)
     })
   }, [])
@@ -897,92 +891,13 @@ export default function Dashboard() {
     saveCache('pdf_settings', { templates: pdfPromptTemplatesRef.current, selectedId: selectedPdfPromptIdRef.current, provider: pdfProviderRef.current, model: pdfModelRef.current, design: id })
   }, [])
 
-  // --- Generate PDF (AI call → cache → download) ----------------------------
-  async function handleGeneratePdf(sectionContent: string, ideaTitle: string) {
-    if (generatingPdfFor || downloadingPdfFor) return
-    setGeneratingPdfFor(ideaTitle)
-    setPdfErrors((prev) => { const n = { ...prev }; delete n[ideaTitle]; return n })
-    try {
-      const isGiveaway = selectedPdfDesignRef.current === 'giveaway'
-      const customPrompt = pdfPromptTemplatesRef.current.find((t) => t.id === selectedPdfPromptIdRef.current)?.content
-      const res = await fetch('/api/generate-pdf-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: sectionContent,
-          customPrompt: customPrompt ?? undefined,
-          provider: pdfProviderRef.current,
-          model: pdfModelRef.current,
-          ideaTitle,
-          template: isGiveaway ? 'giveaway' : 'standard',
-        }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error as string)
-
-      // Persist the structured content so the next download skips the AI call
-      const cacheKey = `${selectedIdeaId ?? ''}_${ideaTitle}`
-      setPdfContentCache((prev) => {
-        const updated = { ...prev, [cacheKey]: data }
-        try { localStorage.setItem('main_pdf_cache', JSON.stringify(updated)) } catch { /* ignore */ }
-        return updated
-      })
-
-      await renderAndDownloadPdf(data, ideaTitle, isGiveaway)
-    } catch (e: unknown) {
-      setPdfErrors((prev) => ({ ...prev, [ideaTitle]: e instanceof Error ? e.message : String(e) }))
-    } finally {
-      setGeneratingPdfFor(null)
-    }
-  }
-
-  // --- Download PDF (cached content, no AI call) ----------------------------
-  async function handleDownloadPdf(ideaTitle: string) {
-    const cacheKey = `${selectedIdeaId ?? ''}_${ideaTitle}`
-    const cached = pdfContentCache[cacheKey]
-    if (!cached || downloadingPdfFor || generatingPdfFor) return
-    setDownloadingPdfFor(ideaTitle)
-    setPdfErrors((prev) => { const n = { ...prev }; delete n[ideaTitle]; return n })
-    try {
-      const isGiveaway = selectedPdfDesignRef.current === 'giveaway'
-      await renderAndDownloadPdf(cached, ideaTitle, isGiveaway)
-    } catch (e: unknown) {
-      setPdfErrors((prev) => ({ ...prev, [ideaTitle]: e instanceof Error ? e.message : String(e) }))
-    } finally {
-      setDownloadingPdfFor(null)
-    }
-  }
-
-  // --- Shared render helper (giveaway = Puppeteer, else jsPDF) --------------
-  async function renderAndDownloadPdf(data: object, ideaTitle: string, isGiveaway: boolean) {
-    if (isGiveaway) {
-      const brandName       = localStorage.getItem('pdf_giveaway_brand')    ?? 'Medha'
-      const instagramHandle = localStorage.getItem('pdf_giveaway_handle')   ?? 'themedhachannel'
-      const customCss       = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
-      const whatsappLink    = localStorage.getItem('pdf_giveaway_whatsapp') ?? undefined
-      const website         = localStorage.getItem('pdf_giveaway_website')  ?? undefined
-      const linktree        = localStorage.getItem('pdf_giveaway_linktree') ?? undefined
-      const pdfRes = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss, whatsappLink, website, linktree }),
-      })
-      if (!pdfRes.ok) {
-        const err = await pdfRes.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error ?? 'PDF generation failed')
-      }
-      const blob = await pdfRes.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const safe = ideaTitle.slice(0, 50).replace(/[^a-z0-9\s]/gi, '').trim().replace(/\s+/g, '-').toLowerCase()
-      a.href = url
-      a.download = `${safe || 'giveaway'}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } else {
-      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
-      await generateAndDownloadPdf(data as PdfContent, selectedPdfDesignRef.current)
-    }
+  // --- PDF record generated from PdfSection --------------------------------
+  function handlePdfGenerated(record: PdfRecord) {
+    setPdfRecords((prev) => {
+      const updated = [record, ...prev]
+      savePdfRecords(updated)
+      return updated
+    })
   }
 
   // --- Toggle star ----------------------------------------------------------
@@ -1992,6 +1907,7 @@ export default function Dashboard() {
               onPromptSelect={selectPdfPromptTemplate}
               onPromptSave={savePdfPromptTemplate}
               onPromptDelete={deletePdfPromptTemplate}
+              onPdfGenerated={handlePdfGenerated}
             />
             </div>
 
@@ -2136,21 +2052,14 @@ export default function Dashboard() {
                             })
                             return lines.slice(i, nextIdx === -1 ? undefined : nextIdx).join('\n')
                           }
-                          const isGenerating   = generatingPdfFor === cleanText
-                          const isDownloading  = downloadingPdfFor === cleanText
-                          const isBusy         = generatingPdfFor !== null || downloadingPdfFor !== null
-                          const pdfCacheKey    = `${selectedIdeaId ?? ''}_${cleanText}`
-                          const hasCachedPdf   = !!pdfContentCache[pdfCacheKey]
                           const isStarred = starredIdeas.some(
                             (s) => s.title === cleanText && s.generationId === selectedIdeaId
                           )
-                          const ideaError = pdfErrors[cleanText]
                           return (
                             <div key={i}>
                               <div className="flex items-center justify-between gap-3 mt-5 mb-1 pt-2 group/idea">
                                 <h3 className="text-base font-bold text-white break-words min-w-0">{cleanText}</h3>
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                                  {/* Star button */}
                                   <button
                                     onClick={() => handleToggleStar(cleanText, getSectionContent())}
                                     title={isStarred ? 'Remove from starred' : 'Star this idea'}
@@ -2163,71 +2072,8 @@ export default function Dashboard() {
                                   >
                                     <Star className="w-3 h-3" fill={isStarred ? 'currentColor' : 'none'} />
                                   </button>
-                                  {/* PDF button(s) */}
-                                  {hasCachedPdf ? (
-                                    <>
-                                      <button
-                                        onClick={() => handleDownloadPdf(cleanText)}
-                                        disabled={isBusy}
-                                        title="Download cached PDF (no AI call)"
-                                        className={clsx(
-                                          'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
-                                          isDownloading
-                                            ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 cursor-not-allowed'
-                                            : isBusy
-                                            ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
-                                            : 'border-emerald-700/50 text-emerald-400 hover:border-emerald-500/60 hover:bg-emerald-500/10',
-                                        )}
-                                      >
-                                        {isDownloading
-                                          ? <><Loader2 className="w-3 h-3 animate-spin" />Downloading...</>
-                                          : <><Download className="w-3 h-3" />Download PDF</>}
-                                      </button>
-                                      <button
-                                        onClick={() => handleGeneratePdf(getSectionContent(), cleanText)}
-                                        disabled={isBusy}
-                                        title="Regenerate PDF (uses AI tokens)"
-                                        className={clsx(
-                                          'p-1.5 rounded-lg border transition-all',
-                                          isGenerating
-                                            ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
-                                            : isBusy
-                                            ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
-                                            : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
-                                        )}
-                                      >
-                                        {isGenerating
-                                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                          : <RefreshCw className="w-3.5 h-3.5" />}
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleGeneratePdf(getSectionContent(), cleanText)}
-                                      disabled={isBusy}
-                                      title="Generate PDF for this idea (uses AI tokens)"
-                                      className={clsx(
-                                        'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
-                                        isGenerating
-                                          ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
-                                          : isBusy
-                                          ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
-                                          : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
-                                      )}
-                                    >
-                                      {isGenerating
-                                        ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
-                                        : <><FileText className="w-3 h-3" />PDF</>}
-                                    </button>
-                                  )}
                                 </div>
                               </div>
-                              {ideaError && (
-                                <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-2 mb-2 text-xs">
-                                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                                  <span>{ideaError}</span>
-                                </div>
-                              )}
                             </div>
                           )
                         }

@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import {
-  ArrowLeft, Star, FileText, Loader2, AlertCircle,
-  ChevronDown, ChevronUp, Download, RefreshCw,
+  ArrowLeft, Star, ChevronDown, ChevronUp,
+  Download, RefreshCw, Trash2, Loader2, AlertCircle, FileText,
 } from 'lucide-react'
 import clsx from 'clsx'
 import type { PromptTemplate } from '@/components/PromptFactory'
-import type { PdfContent } from '@/lib/pdf-templates'
+import { loadPdfRecords, savePdfRecords, type PdfRecord } from '@/lib/pdf-records'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,15 +39,7 @@ interface GenerationRecord {
   model?: string
 }
 
-interface PdfCacheEntry {
-  content: PdfContent
-  design: string
-  provider: string
-  model: string
-  generatedAt: string
-}
-
-// ─── Server-side cache helpers ────────────────────────────────────────────────
+// ─── Cache helpers ────────────────────────────────────────────────────────────
 
 async function loadCache<T>(key: string): Promise<T | null> {
   try {
@@ -65,25 +57,6 @@ async function saveCache(key: string, data: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data }),
   })
-}
-
-// ─── Local PDF content cache (localStorage) ───────────────────────────────────
-
-const LS_PDF_CACHE = 'starred_pdf_cache'
-
-function readPdfCache(): Record<string, PdfCacheEntry> {
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(LS_PDF_CACHE) : null
-    return raw ? (JSON.parse(raw) as Record<string, PdfCacheEntry>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writePdfCache(cache: Record<string, PdfCacheEntry>) {
-  try {
-    localStorage.setItem(LS_PDF_CACHE, JSON.stringify(cache))
-  } catch { /* ignore quota errors */ }
 }
 
 // ─── Content renderer ─────────────────────────────────────────────────────────
@@ -128,15 +101,16 @@ export default function StarredPage() {
   const [pdfSettings, setPdfSettings] = useState<PdfSettings>({})
   const [loading, setLoading]         = useState(true)
   const [expanded, setExpanded]       = useState<Set<string>>(new Set())
-  const [pdfCache, setPdfCache]       = useState<Record<string, PdfCacheEntry>>({})
-  const [generatingFor, setGeneratingFor] = useState<string | null>(null)
-  const [downloadingFor, setDownloadingFor] = useState<string | null>(null)
-  const [pdfErrors, setPdfErrors]     = useState<Record<string, string>>({})
+
+  // PDF Records
+  const [pdfRecords, setPdfRecords]   = useState<PdfRecord[]>([])
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
+  const [recordErrors, setRecordErrors] = useState<Record<string, string>>({})
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load PDF content cache from localStorage (client-only, no API cost)
-    setPdfCache(readPdfCache())
-
+    setPdfRecords(loadPdfRecords())
     Promise.all([
       loadCache<StarredIdea[]>('starred_ideas'),
       loadCache<PdfSettings>('pdf_settings'),
@@ -167,13 +141,6 @@ export default function StarredPage() {
       saveCache('starred_ideas', updated)
       return updated
     })
-    // Also evict the PDF cache entry for this idea
-    setPdfCache((prev) => {
-      const updated = { ...prev }
-      delete updated[ideaId]
-      writePdfCache(updated)
-      return updated
-    })
   }
 
   const toggleExpand = (id: string) => {
@@ -185,113 +152,99 @@ export default function StarredPage() {
     })
   }
 
-  // Download from cache — no AI call
-  const handleDownloadPdf = async (idea: StarredIdea) => {
-    const cached = pdfCache[idea.id]
-    if (!cached || downloadingFor || generatingFor) return
-    setDownloadingFor(idea.id)
-    setPdfErrors((prev) => { const n = { ...prev }; delete n[idea.id]; return n })
+  // ── PDF Record actions ──────────────────────────────────────────────────────
+
+  async function downloadRecord(record: PdfRecord) {
+    if (downloadingId || regeneratingId) return
+    setDownloadingId(record.id)
+    setRecordErrors((prev) => { const n = { ...prev }; delete n[record.id]; return n })
     try {
-      await renderAndDownloadPdf(cached.content, idea.title, cached.design)
+      await callGeneratePdfApi(record.content, record.id)
     } catch (e: unknown) {
-      setPdfErrors((prev) => ({
-        ...prev,
-        [idea.id]: e instanceof Error ? e.message : String(e),
-      }))
+      setRecordErrors((prev) => ({ ...prev, [record.id]: e instanceof Error ? e.message : String(e) }))
     } finally {
-      setDownloadingFor(null)
+      setDownloadingId(null)
     }
   }
 
-  async function renderAndDownloadPdf(data: object, ideaTitle: string, design: string) {
-    if (design === 'giveaway' || design.startsWith('pdf_css_')) {
-      const brandName       = localStorage.getItem('pdf_giveaway_brand')      ?? 'Medha'
-      const instagramHandle = localStorage.getItem('pdf_giveaway_handle')     ?? 'themedhachannel'
-      const customCss       = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
-      const whatsappLink    = localStorage.getItem('pdf_giveaway_whatsapp')   ?? undefined
-      const website         = localStorage.getItem('pdf_giveaway_website')    ?? undefined
-      const linktree        = localStorage.getItem('pdf_giveaway_linktree')   ?? undefined
-      const pdfRes = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: data, brandName, instagramHandle, customCss, whatsappLink, website, linktree }),
-      })
-      if (!pdfRes.ok) {
-        const err = await pdfRes.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error ?? 'PDF generation failed')
-      }
-      const blob = await pdfRes.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const safe = ideaTitle.slice(0, 50).replace(/[^a-z0-9\s]/gi, '').trim().replace(/\s+/g, '-').toLowerCase()
-      a.href = url
-      a.download = `${safe || 'giveaway'}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } else {
-      const { generateAndDownloadPdf } = await import('@/lib/pdf-templates')
-      await generateAndDownloadPdf(data as Parameters<typeof generateAndDownloadPdf>[0], design)
-    }
-  }
-
-  // Generate via AI, cache result, then download
-  const handleGeneratePdf = async (idea: StarredIdea) => {
-    if (generatingFor || downloadingFor) return
-    setGeneratingFor(idea.id)
-    setPdfErrors((prev) => { const n = { ...prev }; delete n[idea.id]; return n })
+  async function regenerateRecord(record: PdfRecord) {
+    if (downloadingId || regeneratingId) return
+    setRegeneratingId(record.id)
+    setRecordErrors((prev) => { const n = { ...prev }; delete n[record.id]; return n })
     try {
-      const customPrompt = pdfSettings.templates?.find(
-        (t) => t.id === pdfSettings.selectedId,
-      )?.content
-      const design = pdfSettings.design ?? 'executive'
-      const provider = pdfSettings.provider ?? 'gemini'
-      const model = pdfSettings.model
-
+      const prompt = pdfSettings.templates?.find((t) => t.id === record.promptId)?.content
+      if (!prompt) throw new Error('Original prompt template not found — it may have been deleted')
       const res = await fetch('/api/generate-pdf-content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: idea.content,
-          customPrompt: customPrompt ?? undefined,
-          provider,
-          model,
-          ideaTitle: idea.title,
+          ctaText: record.ctaText,
+          customPrompt: prompt,
+          provider: record.provider,
+          model: record.model,
+          template: 'giveaway',
         }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error as string)
 
-      // Cache the structured content so future downloads skip the AI call
-      const entry: PdfCacheEntry = {
-        content: data as PdfContent,
-        design,
-        provider,
-        model: model ?? 'default',
-        generatedAt: new Date().toISOString(),
-      }
-      setPdfCache((prev) => {
-        const updated = { ...prev, [idea.id]: entry }
-        writePdfCache(updated)
-        return updated
+      const updated: PdfRecord = { ...record, content: data, generatedAt: new Date().toISOString() }
+      setPdfRecords((prev) => {
+        const next = prev.map((r) => (r.id === record.id ? updated : r))
+        savePdfRecords(next)
+        return next
       })
-
-      await renderAndDownloadPdf(data, idea.title, design)
+      await callGeneratePdfApi(updated.content, updated.id)
     } catch (e: unknown) {
-      setPdfErrors((prev) => ({
-        ...prev,
-        [idea.id]: e instanceof Error ? e.message : String(e),
-      }))
+      setRecordErrors((prev) => ({ ...prev, [record.id]: e instanceof Error ? e.message : String(e) }))
     } finally {
-      setGeneratingFor(null)
+      setRegeneratingId(null)
     }
   }
 
+  async function callGeneratePdfApi(content: PdfRecord['content'], recordId: string) {
+    const brandName       = localStorage.getItem('pdf_giveaway_brand')      ?? 'Medha'
+    const instagramHandle = localStorage.getItem('pdf_giveaway_handle')     ?? 'themedhachannel'
+    const customCss       = localStorage.getItem('pdf_giveaway_custom_css') ?? undefined
+    const whatsappLink    = localStorage.getItem('pdf_giveaway_whatsapp')   ?? undefined
+    const website         = localStorage.getItem('pdf_giveaway_website')    ?? undefined
+    const linktree        = localStorage.getItem('pdf_giveaway_linktree')   ?? undefined
+    const pdfRes = await fetch('/api/generate-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, brandName, instagramHandle, customCss, whatsappLink, website, linktree }),
+    })
+    if (!pdfRes.ok) {
+      const err = await pdfRes.json().catch(() => ({}))
+      throw new Error((err as { error?: string }).error ?? 'PDF generation failed')
+    }
+    const blob = await pdfRes.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const safe = (content.title ?? recordId).slice(0, 50).replace(/[^a-z0-9\s]/gi, '').trim().replace(/\s+/g, '-').toLowerCase()
+    a.href = url
+    a.download = `${safe || 'guide'}.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function deleteRecord(id: string) {
+    setPdfRecords((prev) => {
+      const next = prev.filter((r) => r.id !== id)
+      savePdfRecords(next)
+      return next
+    })
+    setConfirmDeleteId(null)
+  }
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+
   const sorted = [...ideas].sort((a, b) => b.starredAt.localeCompare(a.starredAt))
+  const isBusy = downloadingId !== null || regeneratingId !== null
 
   const providerLabel = pdfSettings.provider ?? 'gemini'
   const modelLabel    = pdfSettings.model ?? 'default'
   const designLabel   = pdfSettings.design ?? 'executive'
-  const isBusy        = generatingFor !== null || downloadingFor !== null
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] text-white">
@@ -304,250 +257,280 @@ export default function StarredPage() {
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span className="text-sm">Dashboard</span>
+            <span className="text-sm">Back</span>
           </a>
-          <div className="w-px h-4 bg-slate-800" />
-          <div className="flex items-center gap-2">
-            <Star className="w-4 h-4 text-amber-400" fill="currentColor" />
-            <span className="text-sm font-semibold text-white">Starred Ideas</span>
-          </div>
-          {!loading && (
-            <span className="text-xs text-slate-600">
-              {sorted.length} saved
-            </span>
+          <div className="h-4 w-px bg-slate-700" />
+          <Star className="w-4 h-4 text-amber-400" fill="currentColor" />
+          <span className="text-sm font-semibold text-white">Starred Ideas</span>
+          {ideas.length > 0 && (
+            <span className="ml-1 text-xs text-slate-500">({ideas.length})</span>
           )}
+          <div className="ml-auto flex items-center gap-2 text-xs text-slate-600">
+            <span>{designLabel}</span>
+            <span>·</span>
+            <span>{providerLabel}</span>
+            <span>·</span>
+            <span className="truncate max-w-24">{modelLabel}</span>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-10">
 
-        {/* ── Loading ── */}
-        {loading && (
-          <div className="flex items-center justify-center py-24">
-            <div className="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
-          </div>
-        )}
-
-        {/* ── Empty state ── */}
-        {!loading && sorted.length === 0 && (
-          <div className="text-center py-24 border border-dashed border-slate-800 rounded-2xl">
-            <Star className="w-10 h-10 text-slate-800 mx-auto mb-3" />
-            <p className="text-slate-400 font-medium mb-1">No starred ideas yet</p>
-            <p className="text-slate-600 text-sm max-w-xs mx-auto">
-              Click the star icon next to any Reel Idea in the Content Ideas tab to save it here.
-            </p>
+        {/* ── Starred Ideas ── */}
+        <div>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-bold text-white">Starred Ideas</h2>
             <a
-              href="/?tab=ideas"
-              className="mt-6 inline-block bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 transition-colors text-sm font-medium px-5 py-2.5 rounded-xl"
+              href="/?tab=ideas#pdf-section"
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
             >
-              Go to Content Ideas
+              Edit in Ideas tab →
             </a>
           </div>
-        )}
 
-        {/* ── Idea list ── */}
-        {!loading && sorted.length > 0 && (
-          <div className="space-y-3">
-
-            {/* PDF settings summary banner */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 mb-5 flex items-center gap-3 flex-wrap">
-              <FileText className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
-              <span className="text-xs text-slate-500">PDF settings for new generations:</span>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs bg-slate-800/80 border border-slate-700/50 rounded-md px-2 py-0.5 text-slate-400">
-                  {providerLabel}
-                </span>
-                <span className="text-xs bg-slate-800/80 border border-slate-700/50 rounded-md px-2 py-0.5 text-slate-400">
-                  {modelLabel}
-                </span>
-                <span className="text-xs bg-slate-800/80 border border-slate-700/50 rounded-md px-2 py-0.5 text-slate-400">
-                  {designLabel} template
-                </span>
-              </div>
-              <a
-                href="/?tab=ideas#pdf-section"
-                className="ml-auto text-xs text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
-              >
-                Edit in Ideas tab →
-              </a>
+          {loading ? (
+            <div className="flex items-center gap-3 text-slate-500 py-12 justify-center">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-sm">Loading…</span>
             </div>
+          ) : sorted.length === 0 ? (
+            <div className="text-center py-16 text-slate-600">
+              <Star className="w-8 h-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">No starred ideas yet — star ideas from the Content Ideas tab.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sorted.map((idea) => {
+                const isOpen = expanded.has(idea.id)
+                const date = new Date(idea.starredAt).toLocaleDateString(undefined, {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                })
+                const shortModel = idea.model
+                  ?.replace('claude-', 'Claude ')
+                  .replace('gemini-', 'Gemini ')
+                  .replace('gpt-', 'GPT-')
+                  .replace('-latest', '')
+                const competitorList = idea.competitors ?? []
+                const visibleComps   = competitorList.slice(0, 2)
+                const extraComps     = competitorList.length - visibleComps.length
 
-            {sorted.map((idea) => {
-              const isOpen         = expanded.has(idea.id)
-              const isGenerating   = generatingFor === idea.id
-              const isDownloading  = downloadingFor === idea.id
-              const cached         = pdfCache[idea.id]
-              const error          = pdfErrors[idea.id]
-
-              const date = new Date(idea.starredAt).toLocaleDateString(undefined, {
-                day: 'numeric', month: 'short', year: 'numeric',
-              })
-              const shortModel = idea.model
-                ?.replace('claude-', 'Claude ')
-                .replace('gemini-', 'Gemini ')
-                .replace('gpt-', 'GPT-')
-                .replace('-latest', '')
-              const competitorList = idea.competitors ?? []
-              const visibleComps   = competitorList.slice(0, 2)
-              const extraComps     = competitorList.length - visibleComps.length
-
-              // Cached PDF metadata for display
-              const cachedDate = cached
-                ? new Date(cached.generatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-                : null
-
-              return (
-                <div
-                  key={idea.id}
-                  className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden"
-                >
-                  {/* ── Card header ── */}
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <button
-                      onClick={() => toggleExpand(idea.id)}
-                      className="flex-1 flex items-center gap-2 min-w-0 text-left"
-                    >
-                      <Star className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="currentColor" />
-                      <span className="text-sm font-semibold text-white truncate min-w-0">{idea.title}</span>
-                      {/* Timestamp */}
-                      <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/50 text-slate-500 whitespace-nowrap">
-                        {date}
-                      </span>
-                      {/* Model chip */}
-                      {shortModel && (
-                        <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 whitespace-nowrap">
-                          {shortModel}
+                return (
+                  <div
+                    key={idea.id}
+                    className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden"
+                  >
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <button
+                        onClick={() => toggleExpand(idea.id)}
+                        className="flex-1 flex items-center gap-2 min-w-0 text-left"
+                      >
+                        <Star className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="currentColor" />
+                        <span className="text-sm font-semibold text-white truncate min-w-0">{idea.title}</span>
+                        <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/50 text-slate-500 whitespace-nowrap">
+                          {date}
                         </span>
-                      )}
-                      {/* Prompt chip */}
-                      {idea.promptName && (
-                        <span className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 whitespace-nowrap max-w-[120px] truncate">
-                          {idea.promptName}
-                        </span>
-                      )}
-                      {/* Creator chips */}
-                      {visibleComps.map((c) => (
-                        <span key={c} className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
-                          @{c}
-                        </span>
-                      ))}
-                      {extraComps > 0 && (
-                        <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
-                          +{extraComps}
-                        </span>
-                      )}
-                      {isOpen
-                        ? <ChevronUp className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />
-                        : <ChevronDown className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />}
-                    </button>
-
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {/* Unstar */}
+                        {shortModel && (
+                          <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 whitespace-nowrap">
+                            {shortModel}
+                          </span>
+                        )}
+                        {idea.promptName && (
+                          <span className="hidden md:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 whitespace-nowrap max-w-[120px] truncate">
+                            {idea.promptName}
+                          </span>
+                        )}
+                        {visibleComps.map((c) => (
+                          <span key={c} className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-400 whitespace-nowrap">
+                            @{c}
+                          </span>
+                        ))}
+                        {extraComps > 0 && (
+                          <span className="hidden sm:inline-flex flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/40 text-slate-500 whitespace-nowrap">
+                            +{extraComps}
+                          </span>
+                        )}
+                        {isOpen
+                          ? <ChevronUp className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />
+                          : <ChevronDown className="w-3.5 h-3.5 text-slate-600 flex-shrink-0 ml-auto" />}
+                      </button>
                       <button
                         onClick={() => handleUnstar(idea.id)}
                         title="Remove from starred"
-                        className="p-1.5 rounded-lg text-amber-500/60 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors"
+                        className="p-1.5 rounded-lg text-amber-500/60 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors flex-shrink-0"
                       >
                         <Star className="w-3.5 h-3.5" fill="currentColor" />
                       </button>
+                    </div>
 
-                      {cached ? (
-                        /* ── Cached: Download + Regenerate ── */
-                        <>
-                          <button
-                            onClick={() => handleDownloadPdf(idea)}
-                            disabled={isBusy}
-                            title={`Download PDF · ${cached.design} · ${cached.provider} · ${cachedDate}`}
-                            className={clsx(
-                              'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
-                              isDownloading
-                                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 cursor-not-allowed'
-                                : isBusy
-                                ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
-                                : 'border-emerald-700/50 text-emerald-400 hover:border-emerald-500/60 hover:bg-emerald-500/10',
-                            )}
-                          >
-                            {isDownloading
-                              ? <><Loader2 className="w-3 h-3 animate-spin" />Downloading...</>
-                              : <><Download className="w-3 h-3" />Download PDF</>}
-                          </button>
-                          <button
-                            onClick={() => handleGeneratePdf(idea)}
-                            disabled={isBusy}
-                            title="Regenerate PDF with current settings (uses AI tokens)"
-                            className={clsx(
-                              'p-1.5 rounded-lg border transition-all',
-                              isGenerating
-                                ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
-                                : isBusy
-                                ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
-                                : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
-                            )}
-                          >
-                            {isGenerating
-                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : <RefreshCw className="w-3.5 h-3.5" />}
-                          </button>
-                        </>
-                      ) : (
-                        /* ── Not cached: Generate ── */
+                    {isOpen && (
+                      <div className="border-t border-slate-700/40 px-4 py-4">
+                        {idea.provider && (
+                          <div className="flex items-center gap-2 flex-wrap mb-3">
+                            <span className="text-xs bg-slate-900/60 border border-slate-800 rounded-md px-2 py-0.5 text-slate-500">
+                              Generated with {idea.provider}
+                              {idea.model ? ` · ${idea.model}` : ''}
+                            </span>
+                          </div>
+                        )}
+                        <IdeaContent content={idea.content} />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── PDF Records ── */}
+        <div>
+          <div className="flex items-center gap-3 mb-5">
+            <FileText className="w-5 h-5 text-violet-400" />
+            <h2 className="text-lg font-bold text-white">Generated PDFs</h2>
+            {pdfRecords.length > 0 && (
+              <span className="text-xs text-slate-500">({pdfRecords.length})</span>
+            )}
+          </div>
+
+          {pdfRecords.length === 0 ? (
+            <div className="text-center py-16 rounded-2xl border border-dashed border-slate-700/60 text-slate-600">
+              <FileText className="w-8 h-8 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No PDFs yet.</p>
+              <p className="text-xs mt-1">Go to Content Ideas → PDF Export, enter a topic and click Generate PDF.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pdfRecords.map((record, idx) => {
+                const isDownloading  = downloadingId === record.id
+                const isRegenerating = regeneratingId === record.id
+                const busy           = isBusy
+                const err            = recordErrors[record.id]
+                const confirming     = confirmDeleteId === record.id
+                const num            = pdfRecords.length - idx
+
+                const date = new Date(record.generatedAt).toLocaleDateString(undefined, {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                })
+                const time = new Date(record.generatedAt).toLocaleTimeString(undefined, {
+                  hour: '2-digit', minute: '2-digit',
+                })
+
+                return (
+                  <div
+                    key={record.id}
+                    className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden"
+                  >
+                    <div className="flex items-center gap-3 px-4 py-3 flex-wrap sm:flex-nowrap">
+                      {/* Number */}
+                      <span className="flex-shrink-0 text-xs font-mono text-slate-600 w-6 text-right">
+                        #{num}
+                      </span>
+
+                      {/* Meta */}
+                      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/50 text-slate-400 whitespace-nowrap">
+                          {date} {time}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 whitespace-nowrap max-w-[140px] truncate">
+                          {record.promptTitle}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400 whitespace-nowrap">
+                          {record.provider} · {record.model?.split('-').slice(-2).join('-')}
+                        </span>
+                        <span className="text-xs text-slate-400 truncate min-w-0 italic">
+                          {record.ctaText.length > 60 ? record.ctaText.slice(0, 60) + '…' : record.ctaText}
+                        </span>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {/* Download */}
                         <button
-                          onClick={() => handleGeneratePdf(idea)}
-                          disabled={isBusy}
-                          title="Generate PDF (uses AI tokens)"
+                          onClick={() => downloadRecord(record)}
+                          disabled={busy}
+                          title="Download PDF (no AI call)"
                           className={clsx(
                             'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all font-medium',
-                            isGenerating
+                            isDownloading
+                              ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 cursor-not-allowed'
+                              : busy
+                              ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
+                              : 'border-emerald-700/50 text-emerald-400 hover:border-emerald-500/60 hover:bg-emerald-500/10',
+                          )}
+                        >
+                          {isDownloading
+                            ? <><Loader2 className="w-3 h-3 animate-spin" />Downloading…</>
+                            : <><Download className="w-3 h-3" />Download</>}
+                        </button>
+
+                        {/* Regenerate */}
+                        <button
+                          onClick={() => regenerateRecord(record)}
+                          disabled={busy}
+                          title="Regenerate with AI then download"
+                          className={clsx(
+                            'p-1.5 rounded-lg border transition-all',
+                            isRegenerating
                               ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed'
-                              : isBusy
+                              : busy
                               ? 'border-slate-700 text-slate-600 opacity-50 cursor-not-allowed'
                               : 'border-slate-700/60 text-slate-500 hover:border-violet-500/50 hover:text-violet-300 hover:bg-violet-500/10',
                           )}
                         >
-                          {isGenerating
-                            ? <><Loader2 className="w-3 h-3 animate-spin" />Generating...</>
-                            : <><FileText className="w-3 h-3" />Generate PDF</>}
+                          {isRegenerating
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <RefreshCw className="w-3.5 h-3.5" />}
                         </button>
-                      )}
+
+                        {/* Delete */}
+                        {confirming ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => deleteRecord(record.id)}
+                              className="text-xs px-2 py-1.5 rounded-lg border border-rose-500/50 bg-rose-500/15 text-rose-400 font-medium hover:bg-rose-500/25 transition-colors"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-xs px-2 py-1.5 rounded-lg border border-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(record.id)}
+                            disabled={busy}
+                            title="Delete this PDF record"
+                            className={clsx(
+                              'p-1.5 rounded-lg border transition-all',
+                              busy
+                                ? 'border-slate-700 text-slate-700 opacity-50 cursor-not-allowed'
+                                : 'border-slate-700/60 text-slate-600 hover:border-rose-500/40 hover:text-rose-400 hover:bg-rose-500/10',
+                            )}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Error */}
+                    {err && (
+                      <div className="mx-4 mb-3 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-2 text-xs">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <span>{err}</span>
+                      </div>
+                    )}
                   </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
-                  {/* ── Cached PDF info strip ── */}
-                  {cached && (
-                    <div className="px-4 pb-2 flex items-center gap-2">
-                      <span className="text-[10px] text-slate-600">
-                        PDF ready · {cached.design} · {cached.provider} · generated {cachedDate}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* ── Error ── */}
-                  {error && (
-                    <div className="mx-4 mb-3 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-2 text-xs">
-                      <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                      <span>{error}</span>
-                    </div>
-                  )}
-
-                  {/* ── Expanded content ── */}
-                  {isOpen && (
-                    <div className="border-t border-slate-700/40 px-4 py-4">
-                      {idea.provider && (
-                        <div className="flex items-center gap-2 flex-wrap mb-3">
-                          <span className="text-xs bg-slate-900/60 border border-slate-800 rounded-md px-2 py-0.5 text-slate-500">
-                            Generated with {idea.provider}
-                            {idea.model ? ` · ${idea.model}` : ''}
-                          </span>
-                        </div>
-                      )}
-                      <IdeaContent content={idea.content} />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
       </div>
     </div>
   )

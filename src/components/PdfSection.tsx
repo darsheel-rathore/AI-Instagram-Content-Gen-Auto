@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, ChevronUp, FileText, Check, Trash2, Eye, Upload } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, Check, Trash2, Eye, Upload, Sparkles, Loader2, AlertCircle } from 'lucide-react'
 import clsx from 'clsx'
 import PromptFactory, { type PromptTemplate } from './PromptFactory'
 import { PDF_TEMPLATES, type PdfTemplateDefinition } from '@/lib/pdf-templates'
+import type { PdfRecord } from '@/lib/pdf-records'
 
 type AIProvider = 'anthropic' | 'openai' | 'gemini'
 type ModelCost = 'expensive' | 'moderate' | 'cheap'
@@ -58,6 +59,7 @@ interface Props {
   onPromptSelect: (id: string) => void
   onPromptSave: (t: PromptTemplate) => void
   onPromptDelete: (id: string) => void
+  onPdfGenerated: (record: PdfRecord) => void
 }
 
 export default function PdfSection({
@@ -72,8 +74,12 @@ export default function PdfSection({
   onPromptSelect,
   onPromptSave,
   onPromptDelete,
+  onPdfGenerated,
 }: Props) {
   const [open, setOpen] = useState(false)
+  const [ctaText, setCtaText] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
   const [cssTemplates, setCssTemplates] = useState<PdfTemplateDefinition[]>([])
   const [giveawayBrand, setGiveawayBrand] = useState('Medha')
   const [giveawayHandle, setGiveawayHandle] = useState('themedhachannel')
@@ -182,6 +188,53 @@ export default function PdfSection({
     if (giveawayWebsite)   params.set('website', giveawayWebsite)
     if (giveawayLinktree)  params.set('linktree', giveawayLinktree)
     window.open(`/api/preview-pdf?${params}`, '_blank', 'noopener')
+  }
+
+  async function handleGenerate() {
+    const selectedTemplate = templates.find((t) => t.id === selectedPromptId)
+    if (!selectedTemplate?.content?.trim()) {
+      setGenerateError('Select a prompt template first — or create one in Prompt Factory below')
+      return
+    }
+    if (!ctaText.trim()) {
+      setGenerateError('Enter the guide topic or CTA text above')
+      return
+    }
+    setGenerating(true)
+    setGenerateError(null)
+    try {
+      const res = await fetch('/api/generate-pdf-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ctaText: ctaText.trim(),
+          customPrompt: selectedTemplate.content,
+          provider,
+          model,
+          template: 'giveaway',
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error as string)
+
+      const record: PdfRecord = {
+        id: crypto.randomUUID(),
+        generatedAt: new Date().toISOString(),
+        promptId: selectedPromptId,
+        promptTitle: selectedTemplate.name,
+        ctaText: ctaText.trim(),
+        content: data,
+        design: selectedDesign,
+        provider,
+        model,
+      }
+      onPdfGenerated(record)
+      setCtaText('')
+    } catch (e: unknown) {
+      setGenerateError(e instanceof Error ? e.message : 'Generation failed — try again')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   return (
@@ -442,6 +495,39 @@ export default function PdfSection({
               onSave={onPromptSave}
               onDelete={onPromptDelete}
             />
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-slate-700/50" />
+
+          {/* CTA + Generate */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Guide Topic / CTA</p>
+            <p className="text-xs text-slate-600 mb-2.5">
+              What should this guide be about? Paste the CTA text your followers will respond to, or describe the topic.
+            </p>
+            <textarea
+              value={ctaText}
+              onChange={(e) => { setCtaText(e.target.value); setGenerateError(null) }}
+              placeholder={'e.g. Drop \'VENUS\' in comments to receive your Venus placement guide...'}
+              rows={3}
+              className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-600/50 resize-none"
+            />
+            {generateError && (
+              <div className="flex items-center gap-1.5 text-xs text-rose-400 mt-1.5">
+                <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                <span>{generateError}</span>
+              </div>
+            )}
+            <button
+              onClick={handleGenerate}
+              disabled={generating || !ctaText.trim()}
+              className="mt-2.5 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 active:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
+            >
+              {generating
+                ? <><Loader2 className="w-4 h-4 animate-spin" />Generating PDF…</>
+                : <><Sparkles className="w-4 h-4" />Generate PDF</>}
+            </button>
           </div>
         </div>
       )}
