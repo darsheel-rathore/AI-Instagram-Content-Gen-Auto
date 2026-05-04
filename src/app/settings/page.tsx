@@ -92,8 +92,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/settings').then((r) => r.json()),
-      fetch('/api/recycle-bin').then((r) => r.json()),
+      fetch('/api/settings').then((r) => r.json()).catch(() => null),
+      fetch('/api/recycle-bin').then((r) => r.json()).catch(() => null),
     ]).then(([s, b]) => {
       if (s?.data) setSettings({ ...DEFAULTS, ...s.data })
       setRecycleBinCount(b?.items?.length ?? 0)

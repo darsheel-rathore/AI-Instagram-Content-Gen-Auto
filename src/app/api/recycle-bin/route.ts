@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
+import { getRedis, useRedis } from '@/lib/redis'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const FILE = path.join(DATA_DIR, 'recycle_bin.json')
+const REDIS_KEY = 'recycle_bin'
 
 export interface RecycleBinItem {
   id: string
@@ -13,60 +15,82 @@ export interface RecycleBinItem {
   deletedAt: string
 }
 
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
-}
-
-function readItems(): RecycleBinItem[] {
-  ensureDir()
-  if (!fs.existsSync(FILE)) return []
+function fsReadItems(): RecycleBinItem[] {
   try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+    if (!fs.existsSync(FILE)) return []
     return JSON.parse(fs.readFileSync(FILE, 'utf-8'))
   } catch {
     return []
   }
 }
 
-function writeItems(items: RecycleBinItem[]) {
-  ensureDir()
-  fs.writeFileSync(FILE, JSON.stringify(items, null, 2), 'utf-8')
+function fsWriteItems(items: RecycleBinItem[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.writeFileSync(FILE, JSON.stringify(items, null, 2), 'utf-8')
+  } catch { /* ignore */ }
 }
 
-// GET — list all items, optionally filtered by TTL days
+async function readItems(): Promise<RecycleBinItem[]> {
+  if (useRedis) return (await getRedis().get<RecycleBinItem[]>(REDIS_KEY)) ?? []
+  return fsReadItems()
+}
+
+async function writeItems(items: RecycleBinItem[]): Promise<void> {
+  if (useRedis) {
+    await getRedis().set(REDIS_KEY, JSON.stringify(items))
+  } else {
+    fsWriteItems(items)
+  }
+}
+
 export async function GET(req: NextRequest) {
-  const daysParam = req.nextUrl.searchParams.get('days')
-  const items = readItems()
+  try {
+    const daysParam = req.nextUrl.searchParams.get('days')
+    const items = await readItems()
 
-  if (!daysParam) return NextResponse.json({ items })
+    if (!daysParam) return NextResponse.json({ items })
 
-  const days = parseInt(daysParam)
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-  const filtered = items.filter((i) => new Date(i.deletedAt).getTime() > cutoff)
-  // auto-clean expired entries
-  if (filtered.length !== items.length) writeItems(filtered)
+    const days = parseInt(daysParam)
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    const filtered = items.filter((i) => new Date(i.deletedAt).getTime() > cutoff)
+    if (filtered.length !== items.length) await writeItems(filtered)
 
-  return NextResponse.json({ items: filtered })
+    return NextResponse.json({ items: filtered })
+  } catch {
+    return NextResponse.json({ items: [] })
+  }
 }
 
-// POST — add an item to the bin
 export async function POST(req: NextRequest) {
   const item: RecycleBinItem = await req.json()
-  const items = readItems()
-  items.unshift(item)
-  writeItems(items)
-  return NextResponse.json({ ok: true })
+  try {
+    const items = await readItems()
+    items.unshift(item)
+    await writeItems(items)
+    return NextResponse.json({ ok: true })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
-// DELETE — remove one item (body: { id }) or all (body: { all: true })
 export async function DELETE(req: NextRequest) {
   const body = await req.json()
-  if (body.all) {
-    writeItems([])
-    return NextResponse.json({ ok: true })
+  try {
+    if (body.all) {
+      await writeItems([])
+      return NextResponse.json({ ok: true })
+    }
+    if (body.id) {
+      const items = await readItems()
+      await writeItems(items.filter((i) => i.id !== body.id))
+      return NextResponse.json({ ok: true })
+    }
+    return NextResponse.json({ error: 'Provide id or all:true' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-  if (body.id) {
-    writeItems(readItems().filter((i) => i.id !== body.id))
-    return NextResponse.json({ ok: true })
-  }
-  return NextResponse.json({ error: 'Provide id or all:true' }, { status: 400 })
 }
