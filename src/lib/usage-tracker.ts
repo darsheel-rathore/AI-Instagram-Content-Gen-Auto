@@ -1,7 +1,16 @@
+import { useRedis, getRedis } from '@/lib/redis'
 import fs from 'fs'
 import path from 'path'
 
-export type Feature = 'transcription' | 'analysis' | 'content-ideas' | 'pdf-generation' | 'pdf-giveaway' | 'scraping' | 'ppt-generation' | 'masterclass-strategy' | 'story-strategy'
+export type Feature =
+  | 'transcription'
+  | 'analysis'
+  | 'content-ideas'
+  | 'scraping'
+  | 'ppt-generation'
+  | 'masterclass-strategy'
+  | 'story-strategy'
+
 export type UsageProvider = 'anthropic' | 'openai' | 'gemini' | 'apify'
 
 export interface UsageEntry {
@@ -16,27 +25,40 @@ export interface UsageEntry {
   estimatedCostUSD: number
 }
 
-// Pricing per million tokens (USD) — update as provider pricing changes
+// Pricing per million tokens (USD)
 const TOKEN_PRICING: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-7':            { input: 15.000, output: 75.00 },
-  'claude-sonnet-4-6':          { input: 3.000,  output: 15.00 },
-  'claude-haiku-4-5-20251001':  { input: 0.250,  output: 1.25  },
-  'gpt-4o':                     { input: 2.500,  output: 10.00 },
-  'gpt-4o-mini':                { input: 0.150,  output: 0.60  },
-  'gemini-2.5-pro':             { input: 1.250,  output: 10.00 },
-  'gemini-2.5-flash':           { input: 0.150,  output: 0.60  },
-  'gemini-2.0-flash-lite':      { input: 0.075,  output: 0.30  },
+  'claude-opus-4-7':           { input: 15.000, output: 75.00 },
+  'claude-sonnet-4-6':         { input: 3.000,  output: 15.00 },
+  'claude-haiku-4-5-20251001': { input: 0.250,  output: 1.25  },
+  'gpt-4o':                    { input: 2.500,  output: 10.00 },
+  'gpt-4o-mini':               { input: 0.150,  output: 0.60  },
+  'gemini-2.5-pro':            { input: 1.250,  output: 10.00 },
+  'gemini-2.5-flash':          { input: 0.150,  output: 0.60  },
+  'gemini-2.0-flash-lite':     { input: 0.075,  output: 0.30  },
 }
 
-const WHISPER_PER_MINUTE = 0.006  // $0.006 / minute
+const WHISPER_PER_MINUTE = 0.006
+const MAX_ENTRIES = 10_000
+const REDIS_KEY = 'usage_log'
+
+// ── Filesystem fallback (local dev) ──────────────────────────────────────────
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const USAGE_FILE = path.join(DATA_DIR, 'usage_log.json')
-const MAX_ENTRIES = 10_000
 
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+function fsReadLogs(): UsageEntry[] {
+  try {
+    if (!fs.existsSync(USAGE_FILE)) return []
+    return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf-8')) as UsageEntry[]
+  } catch { return [] }
 }
+
+function fsWriteLogs(entries: UsageEntry[]) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+  fs.writeFileSync(USAGE_FILE, JSON.stringify(entries, null, 2), 'utf-8')
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export function estimateCost(
   model: string,
@@ -52,37 +74,40 @@ export function estimateCost(
   return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output
 }
 
-export function logUsage(
+export async function logUsage(
   entry: Omit<UsageEntry, 'id' | 'estimatedCostUSD'> & { estimatedCostUSD?: number },
-): void {
+): Promise<void> {
   try {
-    ensureDir()
-    const existing: UsageEntry[] = fs.existsSync(USAGE_FILE)
-      ? (JSON.parse(fs.readFileSync(USAGE_FILE, 'utf-8')) as UsageEntry[])
-      : []
     const cost =
       entry.estimatedCostUSD ??
       estimateCost(entry.model, entry.inputTokens, entry.outputTokens, entry.audioSeconds)
-    existing.push({
+    const record: UsageEntry = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       estimatedCostUSD: cost,
       ...entry,
-    })
-    fs.writeFileSync(
-      USAGE_FILE,
-      JSON.stringify(existing.slice(-MAX_ENTRIES), null, 2),
-      'utf-8',
-    )
+    }
+
+    if (useRedis) {
+      const redis = getRedis()
+      const existing = await redis.get<UsageEntry[]>(REDIS_KEY) ?? []
+      const updated = [...existing, record].slice(-MAX_ENTRIES)
+      await redis.set(REDIS_KEY, JSON.stringify(updated))
+    } else {
+      const existing = fsReadLogs()
+      fsWriteLogs([...existing, record].slice(-MAX_ENTRIES))
+    }
   } catch {
     // Never throw — logging must not break the main response flow
   }
 }
 
-export function readUsageLogs(): UsageEntry[] {
+export async function readUsageLogs(): Promise<UsageEntry[]> {
   try {
-    ensureDir()
-    if (!fs.existsSync(USAGE_FILE)) return []
-    return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf-8')) as UsageEntry[]
+    if (useRedis) {
+      const data = await getRedis().get<UsageEntry[]>(REDIS_KEY)
+      return data ?? []
+    }
+    return fsReadLogs()
   } catch {
     return []
   }

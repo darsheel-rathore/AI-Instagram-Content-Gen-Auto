@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
     }
     const result = await callers[provider]()
 
-    logUsage({ timestamp: new Date().toISOString(), provider, model, feature: 'ppt-generation', inputTokens: result.inputTokens, outputTokens: result.outputTokens })
+    await logUsage({ timestamp: new Date().toISOString(), provider, model, feature: 'ppt-generation', inputTokens: result.inputTokens, outputTokens: result.outputTokens })
 
     const parsed = JSON.parse(stripJsonFences(result.text))
     // Accept both { slides: [...] } and a bare array (fallback)

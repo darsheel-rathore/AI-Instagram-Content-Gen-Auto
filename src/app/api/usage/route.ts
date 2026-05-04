@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readUsageLogs } from '@/lib/usage-tracker'
+import { useRedis, getRedis } from '@/lib/redis'
 import fs from 'fs'
 import path from 'path'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const BALANCE_FILE = path.join(DATA_DIR, 'usage_balance.json')
+const BALANCE_KEY = 'usage_balance'
 
 export interface BalanceEntry {
   balance: number
@@ -14,19 +16,30 @@ export interface BalanceEntry {
 
 type Balances = Record<string, BalanceEntry>
 
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
-}
+// ── Balance helpers ───────────────────────────────────────────────────────────
 
-function readBalances(): Balances {
+async function readBalances(): Promise<Balances> {
   try {
-    ensureDir()
+    if (useRedis) {
+      return (await getRedis().get<Balances>(BALANCE_KEY)) ?? {}
+    }
     if (!fs.existsSync(BALANCE_FILE)) return {}
     return JSON.parse(fs.readFileSync(BALANCE_FILE, 'utf-8')) as Balances
   } catch {
     return {}
   }
 }
+
+async function writeBalances(balances: Balances) {
+  if (useRedis) {
+    await getRedis().set(BALANCE_KEY, JSON.stringify(balances))
+  } else {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.writeFileSync(BALANCE_FILE, JSON.stringify(balances, null, 2), 'utf-8')
+  }
+}
+
+// ── Period filter ─────────────────────────────────────────────────────────────
 
 const PERIOD_MS: Record<string, number> = {
   today: 86_400_000,
@@ -36,9 +49,11 @@ const PERIOD_MS: Record<string, number> = {
   '30d': 30 * 86_400_000,
 }
 
+// ── Route handlers ────────────────────────────────────────────────────────────
+
 export async function GET(req: NextRequest) {
   const period = req.nextUrl.searchParams.get('period') ?? 'all'
-  const allLogs = readUsageLogs()
+  const allLogs = await readUsageLogs()
   const now = Date.now()
 
   const filtered =
@@ -53,14 +68,8 @@ export async function GET(req: NextRequest) {
   let totalCost = 0
 
   const byFeature: Record<string, { tokens: number; cost: number; calls: number }> = {}
-  const byProvider: Record<
-    string,
-    { inputTokens: number; outputTokens: number; cost: number; calls: number }
-  > = {}
-  const byDay: Record<
-    string,
-    { cost: number; inputTokens: number; outputTokens: number; calls: number }
-  > = {}
+  const byProvider: Record<string, { inputTokens: number; outputTokens: number; cost: number; calls: number }> = {}
+  const byDay: Record<string, { cost: number; inputTokens: number; outputTokens: number; calls: number }> = {}
 
   for (const e of filtered) {
     totalInputTokens += e.inputTokens
@@ -94,29 +103,23 @@ export async function GET(req: NextRequest) {
     byFeature,
     byProvider,
     byDay,
-    balances: readBalances(),
+    balances: await readBalances(),
   })
 }
 
 export async function POST(req: NextRequest) {
-  const {
-    provider,
-    balance,
-    label,
-  }: { provider: string; balance: number; label?: string } = await req.json()
-
-  ensureDir()
-  const balances = readBalances()
+  const { provider, balance, label }: { provider: string; balance: number; label?: string } =
+    await req.json()
+  const balances = await readBalances()
   balances[provider] = { balance, currency: 'USD', label }
-  fs.writeFileSync(BALANCE_FILE, JSON.stringify(balances, null, 2), 'utf-8')
+  await writeBalances(balances)
   return NextResponse.json({ ok: true })
 }
 
 export async function DELETE(req: NextRequest) {
   const { provider }: { provider: string } = await req.json()
-  ensureDir()
-  const balances = readBalances()
+  const balances = await readBalances()
   delete balances[provider]
-  fs.writeFileSync(BALANCE_FILE, JSON.stringify(balances, null, 2), 'utf-8')
+  await writeBalances(balances)
   return NextResponse.json({ ok: true })
 }

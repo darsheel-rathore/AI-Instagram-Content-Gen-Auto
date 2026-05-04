@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
     }
     const result = await generators[provider]()
 
-    logUsage({
+    await logUsage({
       timestamp: new Date().toISOString(),
       provider,
       model,

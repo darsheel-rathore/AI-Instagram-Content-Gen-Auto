@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
     const finalPartial = seemsPartial(result.duration)
     log(`✅ Done — final: ${result.duration.toFixed(1)}s transcribed, partial=${finalPartial}, text length=${result.text.length} chars`)
 
-    logUsage({
+    await logUsage({
       timestamp: new Date().toISOString(),
       provider: 'openai',
       model: 'whisper-1',

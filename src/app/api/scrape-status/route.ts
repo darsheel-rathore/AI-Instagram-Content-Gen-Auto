@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     const { status, costUsd } = await getRunStatus(runId)
 
     if (status === 'SUCCEEDED' && !isAlreadyLogged(runId)) {
-      logUsage({
+      await logUsage({
         timestamp: new Date().toISOString(),
         provider: 'apify',
         model: 'apify-scraper',

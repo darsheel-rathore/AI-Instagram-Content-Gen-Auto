@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
     }
     const result = await callers[provider]()
 
-    logUsage({ timestamp: new Date().toISOString(), provider, model, feature: 'masterclass-strategy', inputTokens: result.inputTokens, outputTokens: result.outputTokens })
+    await logUsage({ timestamp: new Date().toISOString(), provider, model, feature: 'masterclass-strategy', inputTokens: result.inputTokens, outputTokens: result.outputTokens })
 
     const strategy = JSON.parse(stripJsonFences(result.text))
     return NextResponse.json({ strategy })

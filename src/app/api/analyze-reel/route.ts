@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
     else if (provider === 'openai') result = await analyzeWithOpenAI(transcript, systemPrompt, model)
     else result = await analyzeWithGemini(transcript, systemPrompt, model)
 
-    logUsage({
+    await logUsage({
       timestamp: new Date().toISOString(),
       provider,
       model,
