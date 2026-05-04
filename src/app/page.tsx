@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import type { Reel } from '@/lib/types'
 import ReelCard from '@/components/ReelCard'
@@ -178,7 +178,7 @@ const SCRAPE_MSG: Record<ScrapeState, string> = {
 
 // --- Page ---------------------------------------------------------------------
 
-export default function Dashboard() {
+function Dashboard() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [tab, setTab] = useState<Tab>(() => {
@@ -2112,5 +2112,13 @@ export default function Dashboard() {
         </div>
       )}
     </main>
+  )
+}
+
+export default function Page() {
+  return (
+    <Suspense>
+      <Dashboard />
+    </Suspense>
   )
 }
