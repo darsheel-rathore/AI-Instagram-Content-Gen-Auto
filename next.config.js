@@ -1,6 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ['puppeteer'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.cdninstagram.com' },
