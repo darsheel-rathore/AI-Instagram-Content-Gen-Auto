@@ -19,6 +19,7 @@ import {
   Settings, LogOut, BarChart2, Star, GraduationCap, Layers, Mic2,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useClerk } from '@clerk/nextjs'
 
 type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass' | 'story'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
@@ -181,6 +182,7 @@ const SCRAPE_MSG: Record<ScrapeState, string> = {
 function Dashboard() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { signOut } = useClerk()
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab')
     return (t as Tab) ?? 'mine'
@@ -1126,10 +1128,9 @@ function Dashboard() {
                     <span>Local Transcribe</span>
                   </a>
                   <button
-                    onClick={async () => {
+                    onClick={() => {
                       setProfileOpen(false)
-                      await fetch('/api/auth/logout', { method: 'POST' })
-                      window.location.href = '/login'
+                      signOut({ redirectUrl: '/login' })
                     }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
                   >
