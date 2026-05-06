@@ -16,7 +16,7 @@ import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, BarChart2, Star, GraduationCap, Layers,
+  Settings, LogOut, BarChart2, Star, GraduationCap, Layers, Mic2,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -1116,6 +1116,14 @@ function Dashboard() {
                   >
                     <BarChart2 className="w-4 h-4 flex-shrink-0" />
                     <span>Token Usage</span>
+                  </a>
+                  <a
+                    href="/transcribe"
+                    onClick={() => setProfileOpen(false)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 transition-colors"
+                  >
+                    <Mic2 className="w-4 h-4 flex-shrink-0" />
+                    <span>Local Transcribe</span>
                   </a>
                   <button
                     onClick={async () => {
