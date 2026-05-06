@@ -33,19 +33,6 @@ export default function UnauthorizedPage() {
           </p>
         </div>
 
-        {/* Info card */}
-        <div className="w-full bg-slate-900/60 border border-slate-800 rounded-2xl px-5 py-4 text-left space-y-2">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Required</p>
-          <div className="flex items-center gap-2">
-            <code className="text-xs bg-slate-800 text-amber-400 border border-slate-700 rounded-lg px-2.5 py-1.5 font-mono">
-              publicMetadata.role = &quot;admin&quot;
-            </code>
-          </div>
-          <p className="text-xs text-slate-600">
-            Set this on your Clerk user via the Clerk Dashboard.
-          </p>
-        </div>
-
         {/* Sign out */}
         <button
           onClick={() => signOut({ redirectUrl: '/login' })}
