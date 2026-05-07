@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
 import './globals.css'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: `Content Dashboard — @${process.env.NEXT_PUBLIC_INSTAGRAM_USERNAME ?? 'me'}`,
   description: 'Instagram reels analytics, competitor research & content ideas',
