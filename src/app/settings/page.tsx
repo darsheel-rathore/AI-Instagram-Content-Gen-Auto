@@ -198,8 +198,14 @@ export default function SettingsPage() {
         body: JSON.stringify(parsed),
       })
       if (!res.ok) {
-        const err = await res.json()
-        setImportError(err.error ?? 'Import failed')
+        let errorMsg = `Import failed (HTTP ${res.status})`
+        try {
+          const err = await res.json()
+          errorMsg = err.error ?? errorMsg
+        } catch {
+          // response body wasn't JSON — keep the HTTP status message
+        }
+        setImportError(errorMsg)
       } else {
         setImportDone(true)
         setImportFile(null)

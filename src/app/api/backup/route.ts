@@ -57,16 +57,21 @@ export async function POST(req: NextRequest) {
 
   const imported: string[] = []
 
-  for (const [key, data] of Object.entries(body as Record<string, unknown>)) {
-    // Guard against path traversal
-    if (!key || key.includes('/') || key.includes('\\') || key.includes('..')) continue
-    if (useRedis) {
-      await getRedis().set(key, JSON.stringify(data))
-    } else {
-      ensureDir()
-      fs.writeFileSync(path.join(DATA_DIR, `${key}.json`), JSON.stringify(data, null, 2), 'utf-8')
+  try {
+    for (const [key, data] of Object.entries(body as Record<string, unknown>)) {
+      // Guard against path traversal
+      if (!key || key.includes('/') || key.includes('\\') || key.includes('..')) continue
+      if (useRedis) {
+        await getRedis().set(key, JSON.stringify(data))
+      } else {
+        ensureDir()
+        fs.writeFileSync(path.join(DATA_DIR, `${key}.json`), JSON.stringify(data, null, 2), 'utf-8')
+      }
+      imported.push(key)
     }
-    imported.push(key)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error during import'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, imported })
