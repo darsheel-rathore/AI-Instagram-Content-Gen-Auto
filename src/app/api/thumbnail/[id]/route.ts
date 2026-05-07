@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
-const THUMB_DIR = path.join(process.cwd(), 'data', 'thumbnails')
+const THUMB_DIR = process.env.VERCEL ? '/tmp/data/thumbnails' : path.join(process.cwd(), 'data', 'thumbnails')
 
 export async function GET(
   _req: NextRequest,

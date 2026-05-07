@@ -5,7 +5,7 @@ import { useRedis, getRedis } from '@/lib/redis'
 
 // ── Filesystem helpers (local dev only) ──────────────────────────────────────
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data')
 
 function fsRead(key: string): unknown | null {
   const file = path.join(DATA_DIR, `${key}.json`)

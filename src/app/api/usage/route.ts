@@ -4,7 +4,7 @@ import { useRedis, getRedis } from '@/lib/redis'
 import fs from 'fs'
 import path from 'path'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data')
 const BALANCE_FILE = path.join(DATA_DIR, 'usage_balance.json')
 const BALANCE_KEY = 'usage_balance'
 

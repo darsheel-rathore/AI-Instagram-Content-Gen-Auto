@@ -5,7 +5,7 @@ import { getRedis, useRedis } from '@/lib/redis'
 import fs from 'fs'
 import path from 'path'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data')
 const LOGGED_RUNS_FILE = path.join(DATA_DIR, 'usage_apify_runs.json')
 const REDIS_KEY = 'logged_apify_runs'
 

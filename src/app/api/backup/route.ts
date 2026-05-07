@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { useRedis, getRedis } from '@/lib/redis'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data')
 // Keys that are user preferences — preserved on clear
 const PRESERVE_ON_CLEAR = new Set(['settings', 'recycle_bin'])
 

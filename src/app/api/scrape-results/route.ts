@@ -3,7 +3,7 @@ import { fetchResults, tagPerformance } from '@/lib/apify'
 import fs from 'fs'
 import path from 'path'
 
-const THUMB_DIR = path.join(process.cwd(), 'data', 'thumbnails')
+const THUMB_DIR = process.env.VERCEL ? '/tmp/data/thumbnails' : path.join(process.cwd(), 'data', 'thumbnails')
 
 function safeId(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)

@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { getRedis, useRedis } from '@/lib/redis'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/data' : path.join(process.cwd(), 'data')
 const FILE = path.join(DATA_DIR, 'recycle_bin.json')
 const REDIS_KEY = 'recycle_bin'
 
