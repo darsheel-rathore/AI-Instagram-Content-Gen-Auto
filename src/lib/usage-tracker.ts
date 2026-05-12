@@ -8,7 +8,6 @@ export type Feature =
   | 'content-ideas'
   | 'scraping'
   | 'ppt-generation'
-  | 'masterclass-strategy'
   | 'story-strategy'
 
 export type UsageProvider = 'anthropic' | 'openai' | 'gemini' | 'apify'

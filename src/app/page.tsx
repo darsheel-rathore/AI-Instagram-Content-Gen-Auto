@@ -10,18 +10,17 @@ import ScrapeProgress from '@/components/ScrapeProgress'
 import CompetitorSection from '@/components/CompetitorSection'
 import ComparisonView from '@/components/ComparisonView'
 import PromptFactory, { type PromptTemplate } from '@/components/PromptFactory'
-import MasterclassTab from '@/components/MasterclassTab'
 import StoryTab from '@/components/StoryTab'
 import {
   RefreshCw, LayoutDashboard, Users2, Lightbulb, AlertCircle,
   Loader2, Sparkles, Filter, Plus, Clock, GitCompare, History,
   SlidersHorizontal, Zap, Wand2, ChevronDown, ChevronRight, Trash2,
-  Settings, LogOut, BarChart2, Star, GraduationCap, Layers, Mic2,
+  Settings, LogOut, BarChart2, Star, Layers, Mic2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useClerk } from '@clerk/nextjs'
 
-type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'masterclass' | 'story'
+type Tab = 'mine' | 'competitors' | 'compare' | 'ideas' | 'story'
 type ScrapeState = 'idle' | 'starting' | 'polling' | 'fetching' | 'done' | 'error'
 type PerfFilter = 'all' | 'top' | 'mid' | 'low'
 type AIProvider = 'anthropic' | 'openai' | 'gemini'
@@ -1027,7 +1026,6 @@ function Dashboard() {
     { id: 'competitors', label: 'Competitors', icon: <Users2 className="w-4 h-4" /> },
     { id: 'compare', label: 'Compare', icon: <GitCompare className="w-4 h-4" /> },
     { id: 'ideas', label: 'Content Ideas', icon: <Lightbulb className="w-4 h-4" /> },
-    { id: 'masterclass', label: 'Masterclass', icon: <GraduationCap className="w-4 h-4" /> },
     { id: 'story', label: 'Story', icon: <Layers className="w-4 h-4" /> },
   ]
 
@@ -2024,8 +2022,6 @@ function Dashboard() {
           </div>
         )}
 
-        {/* == MASTERCLASS ======================================================= */}
-        {tab === 'masterclass' && <MasterclassTab />}
         {tab === 'story' && <StoryTab />}
 
       </div>
