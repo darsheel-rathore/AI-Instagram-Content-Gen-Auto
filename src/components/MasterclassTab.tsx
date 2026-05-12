@@ -1,13 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   GraduationCap, Plus, Calendar, Users, DollarSign,
-  Sparkles, Download, ChevronDown, ChevronUp, Star, Trash2,
+  ChevronDown, ChevronUp, Star, Trash2,
   AlertCircle, Loader2, Clock, MessageCircle, Mail, Camera,
-  Upload, CheckCircle, Circle, TrendingUp,
-  BarChart2, Edit3, X, Check, Layers, Zap,
+  CheckCircle, Circle, TrendingUp,
+  BarChart2, Edit3, Check, Zap,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { BUILT_IN_TEMPLATES, type PptTemplate, type SlideData } from '@/lib/masterclass-templates'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,12 +48,6 @@ interface MasterclassRecord {
   price?: number
   date: string
   createdAt: string
-  pptPrompt?: string
-  pptTemplateId?: string
-  pptTemplate?: PptTemplate
-  pptSlides?: SlideData[]
-  pptProvider?: string
-  pptModel?: string
   strategyProvider?: string
   strategyModel?: string
   strategy?: MarketingStrategy
@@ -98,13 +91,6 @@ const PLATFORM_STYLES: Record<string, { label: string; color: string; icon: Reac
   whatsapp: { label: 'WhatsApp', color: 'text-emerald-400', icon: <MessageCircle className="w-3 h-3" /> },
   email: { label: 'Email', color: 'text-sky-400', icon: <Mail className="w-3 h-3" /> },
 }
-
-const ONLINE_TEMPLATE_LINKS = [
-  { name: 'SlidesGo', url: 'https://slidesgo.com', note: 'Free Google Slides & PPT templates' },
-  { name: 'SlidesCarnival', url: 'https://www.slidescarnival.com', note: 'Free presentation templates' },
-  { name: 'Canva', url: 'https://www.canva.com/presentations/templates/', note: 'Presentation template gallery' },
-  { name: 'SlideModel', url: 'https://slidemodel.com/free-powerpoint-templates/', note: 'Professional PPT templates' },
-]
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -166,22 +152,6 @@ function StarRating({ value, onChange }: { value: number; onChange?: (v: number)
 
 function actKey(dayIdx: number, actIdx: number) { return `${dayIdx}_${actIdx}` }
 
-async function downloadPptx(slides: SlideData[], template: PptTemplate, fileName: string) {
-  const res = await fetch('/api/generate-pptx', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slides, template, fileName }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Download failed' }))
-    throw new Error((err as { error?: string }).error ?? 'Download failed')
-  }
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `${fileName}.pptx`; a.click(); URL.revokeObjectURL(url)
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function MasterclassTab() {
@@ -196,20 +166,6 @@ export default function MasterclassTab() {
   const [targetAudience, setTargetAudience] = useState('')
   const [keyTopics, setKeyTopics] = useState('')
   const [price, setPrice] = useState('')
-
-  // PPT
-  const [selectedTemplateId, setSelectedTemplateId] = useState('executive')
-  const [pptPrompt, setPptPrompt] = useState('')
-  const [pptProvider, setPptProvider] = useState<AIProvider>('gemini')
-  const [pptModel, setPptModel] = useState(DEFAULT_MODEL.gemini)
-  const [generatedSlides, setGeneratedSlides] = useState<SlideData[] | null>(null)
-  const [generatingPpt, setGeneratingPpt] = useState(false)
-  const [pptError, setPptError] = useState('')
-  const [downloadingPpt, setDownloadingPpt] = useState(false)
-  const [expandedSlides, setExpandedSlides] = useState(false)
-  const [showTemplateBrowser, setShowTemplateBrowser] = useState(false)
-  const [customTemplates, setCustomTemplates] = useState<PptTemplate[]>([])
-  const importRef = useRef<HTMLInputElement>(null)
 
   // Strategy
   const [strategyProvider, setStrategyProvider] = useState<AIProvider>('gemini')
@@ -231,7 +187,6 @@ export default function MasterclassTab() {
   const [peEarnings, setPeEarnings] = useState('')
   const [peNotes, setPeNotes] = useState('')
   const [savingPe, setSavingPe] = useState(false)
-  const [pptDownloadErrors, setPptDownloadErrors] = useState<Record<string, string>>({})
 
   // ─── Load ──────────────────────────────────────────────────────────────────
 
@@ -247,46 +202,15 @@ export default function MasterclassTab() {
 
   useEffect(() => {
     reload()
-    try {
-      const saved = localStorage.getItem('mc_custom_templates')
-      if (saved) setCustomTemplates(JSON.parse(saved) as PptTemplate[])
-    } catch { /* ignore */ }
   }, [])
 
   // ─── Derived ───────────────────────────────────────────────────────────────
-
-  const allTemplates = [...BUILT_IN_TEMPLATES, ...customTemplates]
-  const selectedTemplate = allTemplates.find((t) => t.id === selectedTemplateId) ?? BUILT_IN_TEMPLATES[0]
 
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const upcoming = masterclasses.filter((m) => new Date(m.date) >= today).sort((a, b) => a.date.localeCompare(b.date))
   const past = masterclasses.filter((m) => new Date(m.date) < today).sort((a, b) => b.date.localeCompare(a.date))
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
-
-  async function handleGeneratePpt() {
-    if (!title.trim()) { setPptError('Enter a title first'); return }
-    setGeneratingPpt(true); setPptError('')
-    try {
-      const res = await fetch('/api/generate-ppt-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description, targetAudience, keyTopics, price: price ? Number(price) : undefined, customPrompt: pptPrompt, provider: pptProvider, model: pptModel }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error as string)
-      setGeneratedSlides(data.slides as SlideData[]); setExpandedSlides(true)
-    } catch (e: unknown) { setPptError(e instanceof Error ? e.message : String(e)) }
-    finally { setGeneratingPpt(false) }
-  }
-
-  async function handleDownloadPpt(slides: SlideData[], template: PptTemplate, fileName: string, errKey = 'create') {
-    setDownloadingPpt(true)
-    setPptDownloadErrors((prev) => { const n = { ...prev }; delete n[errKey]; return n })
-    try { await downloadPptx(slides, template, fileName) }
-    catch (e: unknown) { setPptDownloadErrors((prev) => ({ ...prev, [errKey]: e instanceof Error ? e.message : String(e) })) }
-    finally { setDownloadingPpt(false) }
-  }
 
   async function handleGenerateStrategy() {
     if (!title.trim()) { setStrategyError('Enter a title first'); return }
@@ -316,16 +240,14 @@ export default function MasterclassTab() {
         body: JSON.stringify({
           id, title, description, targetAudience, keyTopics,
           price: price ? Number(price) : undefined, date: eventDate,
-          pptPrompt, pptTemplateId: selectedTemplateId, pptTemplate: selectedTemplate,
-          pptSlides: generatedSlides ?? undefined, pptProvider, pptModel,
           strategyProvider, strategyModel, strategy: generatedStrategy ?? undefined,
         }),
       })
       await reload()
       setTitle(''); setEventDate(''); setDescription(''); setTargetAudience('')
-      setKeyTopics(''); setPrice(''); setPptPrompt('')
-      setGeneratedSlides(null); setGeneratedStrategy(null)
-      setPptError(''); setStrategyError('')
+      setKeyTopics(''); setPrice('')
+      setGeneratedStrategy(null)
+      setStrategyError('')
       setActiveTab(new Date(eventDate) >= today ? 'current' : 'history')
     } catch (e: unknown) { setSaveError(e instanceof Error ? e.message : String(e)) }
     finally { setSaving(false) }
@@ -358,27 +280,6 @@ export default function MasterclassTab() {
   function startEditing(mc: MasterclassRecord) {
     setEditingId(mc.id); setPeRating(mc.postEvent?.rating ?? 0)
     setPeAttendees(mc.postEvent?.attendees?.toString() ?? ''); setPeEarnings(mc.postEvent?.earnings?.toString() ?? ''); setPeNotes(mc.postEvent?.notes ?? '')
-  }
-
-  function handleImportTemplate(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const json = JSON.parse(ev.target?.result as string) as PptTemplate
-        if (!json.id || !json.name || !json.colors) throw new Error()
-        const t: PptTemplate = { ...json, id: `custom_${Date.now()}`, isCustom: true }
-        const updated = [...customTemplates, t]
-        setCustomTemplates(updated); localStorage.setItem('mc_custom_templates', JSON.stringify(updated)); setSelectedTemplateId(t.id)
-      } catch { alert('Invalid template JSON. Export a built-in template first to see the format.') }
-    }
-    reader.readAsText(file); e.target.value = ''
-  }
-
-  function handleExportTemplate(t: PptTemplate) {
-    const blob = new Blob([JSON.stringify(t, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `template_${t.id}.json`; a.click(); URL.revokeObjectURL(url)
   }
 
   function toggleCard(id: string) {
@@ -418,8 +319,8 @@ export default function MasterclassTab() {
           <button
             onClick={() => {
               setActiveTab('create'); setTitle(''); setEventDate(''); setDescription('')
-              setTargetAudience(''); setKeyTopics(''); setPrice(''); setPptPrompt('')
-              setGeneratedSlides(null); setGeneratedStrategy(null); setSaveError(''); setPptError(''); setStrategyError('')
+              setTargetAudience(''); setKeyTopics(''); setPrice('')
+              setGeneratedStrategy(null); setSaveError(''); setStrategyError('')
             }}
             className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 transition-colors font-medium"
           >
@@ -502,164 +403,6 @@ export default function MasterclassTab() {
             </div>
           </section>
 
-          {/* PPT */}
-          <section className="border border-slate-800 rounded-2xl p-5">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-blue-400" /> PowerPoint Presentation
-            </h3>
-
-            {/* Template picker */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-500">Template</span>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setShowTemplateBrowser(!showTemplateBrowser)}
-                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors">
-                    Browse Online
-                  </button>
-                  <button onClick={() => importRef.current?.click()}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
-                    <Upload className="w-3 h-3" /> Import JSON
-                  </button>
-                  <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportTemplate} />
-                </div>
-              </div>
-
-              {showTemplateBrowser && (
-                <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium text-white">Free Template Resources</span>
-                    <button onClick={() => setShowTemplateBrowser(false)}><X className="w-4 h-4 text-slate-500 hover:text-white" /></button>
-                  </div>
-                  <p className="text-xs text-slate-500 mb-3">Find a template, then export a built-in theme as JSON, edit its colors, and import it here.</p>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    {ONLINE_TEMPLATE_LINKS.map((link) => (
-                      <a key={link.name} href={link.url} target="_blank" rel="noreferrer"
-                        className="rounded-lg border border-slate-700/60 bg-slate-800/40 px-3 py-2 hover:border-violet-500/40 transition-colors">
-                        <p className="text-xs font-medium text-violet-300">{link.name} ↗</p>
-                        <p className="text-xs text-slate-600 mt-0.5">{link.note}</p>
-                      </a>
-                    ))}
-                  </div>
-                  <div className="border-t border-slate-800 pt-3">
-                    <p className="text-xs text-slate-600 mb-2">Export a built-in theme as JSON starting point:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {BUILT_IN_TEMPLATES.map((t) => (
-                        <button key={t.id} onClick={() => handleExportTemplate(t)}
-                          className="text-xs text-slate-500 hover:text-violet-300 underline underline-offset-2 transition-colors">
-                          Export {t.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                {allTemplates.map((t) => (
-                  <div key={t.id} className="relative">
-                    <button onClick={() => setSelectedTemplateId(t.id)}
-                      className={clsx('w-full rounded-xl border p-2.5 text-left transition-all',
-                        selectedTemplateId === t.id
-                          ? 'border-violet-500 bg-violet-500/10 ring-1 ring-violet-500/30'
-                          : 'border-slate-700/60 hover:border-slate-600')}>
-                      <div className="w-full h-7 rounded-lg mb-1.5 border border-slate-700/40" style={{ background: t.preview }} />
-                      <p className="text-xs font-medium text-white truncate">{t.name}</p>
-                      {t.isCustom && <span className="text-xs text-violet-400">Custom</span>}
-                    </button>
-                    {t.isCustom && (
-                      <button
-                        onClick={() => {
-                          const updated = customTemplates.filter((c) => c.id !== t.id)
-                          setCustomTemplates(updated)
-                          localStorage.setItem('mc_custom_templates', JSON.stringify(updated))
-                          if (selectedTemplateId === t.id) setSelectedTemplateId(BUILT_IN_TEMPLATES[0].id)
-                        }}
-                        className="absolute top-1 left-1 w-5 h-5 rounded-full bg-slate-900/80 flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors z-10"
-                        title="Delete template"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-3">
-              <label className="text-xs text-slate-500 mb-1.5 block">Additional slide instructions (optional)</label>
-              <textarea value={pptPrompt} onChange={(e) => setPptPrompt(e.target.value)}
-                placeholder="e.g. Include a pricing slide, add interactive exercises..."
-                rows={2} className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-violet-500 transition-colors resize-none" />
-            </div>
-
-            <div className="mb-4">
-              <label className="text-xs text-slate-500 mb-1.5 block">AI Model</label>
-              <ProviderModelPicker provider={pptProvider} model={pptModel} onChange={(p, m) => { setPptProvider(p); setPptModel(m) }} />
-            </div>
-
-            <div className="flex items-center flex-wrap gap-3">
-              <button onClick={handleGeneratePpt} disabled={generatingPpt}
-                className={clsx('flex items-center gap-2 text-sm px-4 py-2 rounded-xl border font-medium transition-all',
-                  generatingPpt ? 'border-violet-500/50 bg-violet-500/15 text-violet-300 cursor-not-allowed' : 'border-violet-500/40 bg-violet-500/20 text-violet-300 hover:bg-violet-500/30')}>
-                {generatingPpt ? <><Loader2 className="w-4 h-4 animate-spin" />Generating...</> : <><Sparkles className="w-4 h-4" />Generate Slides</>}
-              </button>
-              {generatedSlides && (
-                <button onClick={() => handleDownloadPpt(generatedSlides, selectedTemplate, title || 'masterclass')} disabled={downloadingPpt}
-                  className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 font-medium transition-all disabled:opacity-50">
-                  {downloadingPpt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                  Download .pptx
-                </button>
-              )}
-            </div>
-
-            {pptError && <div className="mt-3 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-3 py-2 text-xs"><AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{pptError}</div>}
-            {pptDownloadErrors.create && <div className="mt-2 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-3 py-2 text-xs"><AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{pptDownloadErrors.create}</div>}
-
-            {generatedSlides && (
-              <div className="mt-4">
-                <button onClick={() => setExpandedSlides(!expandedSlides)}
-                  className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors mb-2">
-                  {expandedSlides ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  {generatedSlides.length} slides generated
-                </button>
-                {expandedSlides && (
-                  <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                    {generatedSlides.map((slide, i) => {
-                      const label = slide.heading ?? slide.title ?? slide.sectionTitle ?? slide.text?.slice(0, 40) ?? ''
-                      const bullets = slide.bullets ?? slide.points ?? []
-                      const BADGE: Record<string, string> = {
-                        title: 'bg-violet-500/20 text-violet-400',
-                        agenda: 'bg-blue-500/20 text-blue-400',
-                        content: 'bg-slate-700/60 text-slate-400',
-                        quote: 'bg-amber-500/20 text-amber-400',
-                        exercise: 'bg-emerald-500/20 text-emerald-400',
-                        divider: 'bg-sky-500/20 text-sky-400',
-                        cta: 'bg-rose-500/20 text-rose-400',
-                        section: 'bg-blue-500/20 text-blue-400',
-                        closing: 'bg-amber-500/20 text-amber-400',
-                      }
-                      return (
-                        <div key={i} className="flex items-start gap-2.5 rounded-lg bg-slate-800/40 px-3 py-2">
-                          <span className="text-xs text-slate-600 w-5 flex-shrink-0 mt-0.5">{i + 1}</span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium text-white truncate">{label}</p>
-                            {slide.subtitle && <p className="text-xs text-slate-500 truncate">{slide.subtitle}</p>}
-                            {bullets.length > 0 && <p className="text-xs text-slate-600 mt-0.5">{bullets.length} bullets</p>}
-                            {slide.insight && <p className="text-xs text-amber-600/70 mt-0.5 truncate">↳ {slide.insight}</p>}
-                          </div>
-                          <span className={clsx('text-xs rounded-md px-1.5 py-0.5 flex-shrink-0', BADGE[slide.type] ?? 'bg-slate-700/60 text-slate-500')}>
-                            {slide.type}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
           {/* Strategy */}
           <section className="border border-slate-800 rounded-2xl p-5">
             <h3 className="text-sm font-semibold text-slate-300 mb-1 flex items-center gap-2">
@@ -719,18 +462,10 @@ export default function MasterclassTab() {
               <UpcomingCard
                 key={mc.id}
                 mc={mc}
-                allTemplates={allTemplates}
                 isExpanded={expandedCards.has(mc.id)}
                 onToggleExpand={() => toggleCard(mc.id)}
                 onToggleActivity={(key) => handleToggleActivity(mc, key)}
                 onDelete={() => handleDelete(mc.id)}
-                onDownloadPpt={async () => {
-                  if (!mc.pptSlides) return
-                  const tmpl = allTemplates.find((t) => t.id === mc.pptTemplateId) ?? mc.pptTemplate ?? BUILT_IN_TEMPLATES[0]
-                  await handleDownloadPpt(mc.pptSlides, tmpl, mc.title, mc.id)
-                }}
-                downloadingPpt={downloadingPpt}
-                pptDownloadError={pptDownloadErrors[mc.id]}
                 daysUntil={daysUntil}
                 fmt={fmt}
                 expandedStratDays={expandedStratDays}
@@ -833,29 +568,6 @@ export default function MasterclassTab() {
                           ))}
                         </div>
                       )}
-                      {mc.pptSlides && (
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                            <Layers className="w-3.5 h-3.5 text-blue-400" />
-                            {mc.pptSlides.length} slides{mc.pptTemplate ? ` · ${mc.pptTemplate.name}` : ''}
-                          </span>
-                          <button
-                            onClick={async () => {
-                              if (!mc.pptSlides) return
-                              const tmpl = allTemplates.find((t) => t.id === mc.pptTemplateId) ?? mc.pptTemplate ?? BUILT_IN_TEMPLATES[0]
-                              await handleDownloadPpt(mc.pptSlides, tmpl, mc.title, mc.id)
-                            }}
-                            disabled={downloadingPpt}
-                            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-50">
-                            {downloadingPpt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />} .pptx
-                          </button>
-                        </div>
-                      )}
-                      {pptDownloadErrors[mc.id] && (
-                        <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-3 py-2 text-xs">
-                          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{pptDownloadErrors[mc.id]}
-                        </div>
-                      )}
                       {mc.strategy && (
                         <div>
                           <p className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-400" />Marketing Strategy</p>
@@ -944,19 +656,15 @@ function StrategyTimeline({
 // ─── Upcoming Card ────────────────────────────────────────────────────────────
 
 function UpcomingCard({
-  mc, allTemplates, isExpanded, onToggleExpand, onToggleActivity, onDelete,
-  onDownloadPpt, downloadingPpt, pptDownloadError, daysUntil, fmt,
+  mc, isExpanded, onToggleExpand, onToggleActivity, onDelete,
+  daysUntil, fmt,
   expandedStratDays, onToggleStratDay,
 }: {
   mc: MasterclassRecord
-  allTemplates: PptTemplate[]
   isExpanded: boolean
   onToggleExpand: () => void
   onToggleActivity: (key: string) => void
   onDelete: () => void
-  onDownloadPpt: () => void
-  downloadingPpt: boolean
-  pptDownloadError?: string
   daysUntil: (d: string) => string
   fmt: (d: string) => string
   expandedStratDays: Set<number>
@@ -985,12 +693,6 @@ function UpcomingCard({
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {mc.pptSlides && (
-            <button onClick={onDownloadPpt} disabled={downloadingPpt}
-              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-50">
-              {downloadingPpt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />} .pptx
-            </button>
-          )}
           <button onClick={onToggleExpand} className="p-1.5 rounded-lg text-slate-500 hover:text-white transition-colors">
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -999,12 +701,6 @@ function UpcomingCard({
           </button>
         </div>
       </div>
-
-      {pptDownloadError && (
-        <div className="mx-5 mb-3 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-3 py-2 text-xs">
-          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{pptDownloadError}
-        </div>
-      )}
 
       {isExpanded && (
         <div className="border-t border-violet-500/10 px-5 py-4 space-y-4">
@@ -1015,14 +711,6 @@ function UpcomingCard({
                 <span key={i} className="text-xs bg-slate-800/60 border border-slate-700/60 rounded-full px-2.5 py-0.5 text-slate-400">{t.trim()}</span>
               ))}
             </div>
-          )}
-          {mc.pptSlides && (
-            <p className="text-xs text-slate-500 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-blue-400" />
-              {mc.pptSlides.length} slides
-              {(allTemplates.find((t) => t.id === mc.pptTemplateId) ?? mc.pptTemplate)?.name &&
-                ` · ${(allTemplates.find((t) => t.id === mc.pptTemplateId) ?? mc.pptTemplate)?.name}`}
-            </p>
           )}
           {mc.strategy && (
             <div>
