@@ -44,9 +44,11 @@ const WHISPER_NATIVE = new Set([
 ])
 
 // ffmpeg WASM CDN — try unpkg first, fall back to jsdelivr
+// NOTE: @ffmpeg/core-st was deprecated and has no 0.12.x release. Use @ffmpeg/core
+// (single-threaded by default) matched to the @ffmpeg/ffmpeg lib version.
 const WASM_BASE = {
-  primary: 'https://unpkg.com/@ffmpeg/core-st@0.12.6/dist/umd/',
-  fallback: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/umd/',
+  primary: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/',
+  fallback: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/',
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
