@@ -5,6 +5,10 @@ import { writeFile, unlink } from 'fs/promises'
 import { logUsage } from '@/lib/usage-tracker'
 
 const WHISPER_API = 'https://api.openai.com/v1/audio/transcriptions'
+const TRANSCRIBE_MODEL = 'gpt-4o-transcribe'
+// gpt-4o-transcribe doesn't return duration like whisper-1's verbose_json did.
+// We estimate from file size — mp3 at 64 kbps ≈ 8000 bytes/sec.
+const BYTES_PER_SECOND_64K_MP3 = 8000
 
 export const maxDuration = 120
 
@@ -40,8 +44,7 @@ export async function POST(req: NextRequest) {
     const blob = new Blob([buf], { type: file.type || 'application/octet-stream' })
     const form = new FormData()
     form.append('file', blob, file.name)
-    form.append('model', 'whisper-1')
-    form.append('response_format', 'verbose_json')
+    form.append('model', TRANSCRIBE_MODEL)
     if (language && language !== 'auto') form.append('language', language)
 
     const res = await fetch(WHISPER_API, {
@@ -56,21 +59,22 @@ export async function POST(req: NextRequest) {
       throw new Error(`Whisper API error (${res.status}): ${errText.slice(0, 300)}`)
     }
 
-    const result = await res.json() as { text: string; duration: number }
+    const result = await res.json() as { text: string }
+    const estimatedDuration = Math.round(file.size / BYTES_PER_SECOND_64K_MP3)
 
     await logUsage({
       timestamp: new Date().toISOString(),
       provider: 'openai',
-      model: 'whisper-1',
+      model: TRANSCRIBE_MODEL,
       feature: 'transcription',
       inputTokens: 0,
       outputTokens: 0,
-      audioSeconds: Math.round(result.duration),
+      audioSeconds: estimatedDuration,
     })
 
     return NextResponse.json({
       transcript: result.text.trim(),
-      transcribedDuration: Math.round(result.duration),
+      transcribedDuration: estimatedDuration,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

@@ -82,6 +82,8 @@ export default function TranscribePage() {
   const [copied, setCopied] = useState(false)
   const [extractProgress, setExtractProgress] = useState(0)
   const [chunkInfo, setChunkInfo] = useState<{ current: number; total: number } | null>(null)
+  const [debugAudioUrl, setDebugAudioUrl] = useState<string | null>(null)
+  const [debugAudioInfo, setDebugAudioInfo] = useState<{ sizeKB: string; estimatedSec: string } | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const ffmpegRef = useRef<FFmpeg | null>(null)
@@ -95,6 +97,11 @@ export default function TranscribePage() {
     const ff = new FFmpeg()
     ff.on('progress', ({ progress }: { progress: number }) => {
       setExtractProgress(Math.round(Math.min(progress, 1) * 100))
+      console.log('[transcribe] ffmpeg progress:', Math.round(Math.min(progress, 1) * 100) + '%')
+    })
+    ff.on('log', ({ message }: { message: string }) => {
+      // ffmpeg's own stderr output — includes detected Duration, stream info, etc.
+      console.log('[ffmpeg]', message)
     })
 
     // Try primary CDN (unpkg), fall back to jsdelivr if it fails
@@ -118,17 +125,28 @@ export default function TranscribePage() {
 
   const extractAudio = useCallback(async (ff: FFmpeg, src: File): Promise<Uint8Array> => {
     const { fetchFile } = await import('@ffmpeg/util')
+    console.log('[transcribe] extractAudio start — input file:', { name: src.name, sizeMB: (src.size / 1024 / 1024).toFixed(2), type: src.type })
     setExtractProgress(0)
     await ff.writeFile('input', await fetchFile(src))
-    await ff.exec([
+    const execCode = await ff.exec([
       '-i', 'input',
       '-vn',           // strip video
       '-ar', '16000',  // 16 kHz — Whisper's native rate
       '-ac', '1',      // mono
-      '-b:a', '32k',   // 32 kbps — good for speech, tiny files
+      '-b:a', '64k',   // 64 kbps — better signal for Whisper than 32k, still small
       '-f', 'mp3', 'audio.mp3',
     ])
+    console.log('[transcribe] ffmpeg exec exit code:', execCode, '(0 = success)')
     const data = await ff.readFile('audio.mp3') as Uint8Array
+    const estimatedSeconds = data.byteLength / 8000 // 64 kbps ≈ 8000 bytes/s
+    console.log('[transcribe] extractAudio done — output mp3:', { sizeKB: (data.byteLength / 1024).toFixed(2), bytes: data.byteLength, estimatedDurationSec: estimatedSeconds.toFixed(1) })
+
+    // Expose extracted MP3 for debug — user can download & play to verify ffmpeg's output
+    const debugBlob = new Blob([new Uint8Array(data)], { type: 'audio/mpeg' })
+    const url = URL.createObjectURL(debugBlob)
+    setDebugAudioUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url })
+    setDebugAudioInfo({ sizeKB: (data.byteLength / 1024).toFixed(2), estimatedSec: estimatedSeconds.toFixed(1) })
+
     try { await ff.deleteFile('input') } catch { /* ignore */ }
     try { await ff.deleteFile('audio.mp3') } catch { /* ignore */ }
     return data
@@ -137,10 +155,11 @@ export default function TranscribePage() {
   // ── chunk splitter (splits audio into ≤ 3.8 MB segments) ────────────────
 
   const splitIntoChunks = useCallback(async (ff: FFmpeg, audioData: Uint8Array): Promise<Uint8Array[]> => {
+    console.log('[transcribe] splitIntoChunks — input:', { sizeKB: (audioData.byteLength / 1024).toFixed(2), thresholdKB: (CHUNK_MAX_BYTES / 1024).toFixed(2), willSplit: audioData.byteLength > CHUNK_MAX_BYTES })
     if (audioData.byteLength <= CHUNK_MAX_BYTES) return [audioData]
 
-    // At 32 kbps: bytes/sec ≈ 4000. Derive segment time that keeps each chunk < 3.8 MB.
-    const bytesPerSec = 4000
+    // At 64 kbps: bytes/sec ≈ 8000. Derive segment time that keeps each chunk < 3.8 MB.
+    const bytesPerSec = 8000
     const segmentSecs = Math.floor(CHUNK_MAX_BYTES / bytesPerSec) - 10 // 10 s buffer
 
     await ff.writeFile('full.mp3', audioData)
@@ -167,6 +186,7 @@ export default function TranscribePage() {
     }
 
     try { await ff.deleteFile('full.mp3') } catch { /* ignore */ }
+    console.log('[transcribe] splitIntoChunks done — produced', chunks.length, 'chunks:', chunks.map(c => ({ sizeKB: (c.byteLength / 1024).toFixed(2), estimatedSec: (c.byteLength / 8000).toFixed(1) })))
     return chunks
   }, [])
 
@@ -185,6 +205,8 @@ export default function TranscribePage() {
     setDuration(null)
     setStatus('idle')
     setChunkInfo(null)
+    setDebugAudioUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
+    setDebugAudioInfo(null)
   }, [])
 
   const onDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
@@ -254,20 +276,29 @@ export default function TranscribePage() {
     const parts: string[] = []
     let totalDuration = 0
 
+    console.log('[transcribe] sending', audioChunks.length, 'chunk(s) to Whisper API')
     try {
       for (let i = 0; i < audioChunks.length; i++) {
         if (audioChunks.length > 1) setChunkInfo({ current: i + 1, total: audioChunks.length })
 
+        const chunkBlob = audioChunks[i]
+        console.log(`[transcribe] chunk ${i + 1}/${audioChunks.length} → POST /api/transcribe-local`, { sizeKB: (chunkBlob.size / 1024).toFixed(2) })
+
         const form = new FormData()
-        form.append('file', new File([audioChunks[i]], `audio_${i}.mp3`, { type: 'audio/mpeg' }))
+        form.append('file', new File([chunkBlob], `audio_${i}.mp3`, { type: 'audio/mpeg' }))
         if (language !== 'auto') form.append('language', language)
+        console.log(`[transcribe] chunk ${i + 1} language param:`, language === 'auto' ? '(not sent — Whisper will auto-detect)' : language)
 
         const res = await fetch('/api/transcribe-local', { method: 'POST', body: form })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Transcription failed')
 
-        parts.push(data.transcript as string)
-        totalDuration += (data.transcribedDuration as number) ?? 0
+        const transcriptText = data.transcript as string
+        const chunkDuration = (data.transcribedDuration as number) ?? 0
+        console.log(`[transcribe] chunk ${i + 1} response:`, { transcribedDurationSec: chunkDuration, transcriptChars: transcriptText.length, transcriptPreview: transcriptText.slice(0, 100) + (transcriptText.length > 100 ? '…' : '') })
+
+        parts.push(transcriptText)
+        totalDuration += chunkDuration
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
@@ -275,7 +306,9 @@ export default function TranscribePage() {
       return
     }
 
-    setTranscript(parts.join(' '))
+    const finalTranscript = parts.join(' ')
+    console.log('[transcribe] DONE', { totalChunks: audioChunks.length, totalDurationSec: totalDuration, totalChars: finalTranscript.length, totalWords: finalTranscript.trim().split(/\s+/).filter(Boolean).length })
+    setTranscript(finalTranscript)
     setDuration(totalDuration || null)
     setChunkInfo(null)
     setStatus('done')
@@ -518,6 +551,30 @@ export default function TranscribePage() {
               </p>
               <p className="text-xs text-slate-500 mt-1">Sending compressed audio to Whisper</p>
             </div>
+          </div>
+        )}
+
+        {/* Debug — extracted audio preview & download (lets you verify ffmpeg output) */}
+        {debugAudioUrl && debugAudioInfo && (
+          <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-5">
+            <div className="flex items-start gap-3 mb-3">
+              <Scissors className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-300">Extracted audio (debug)</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {debugAudioInfo.sizeKB} KB · ~{debugAudioInfo.estimatedSec} s estimated. This is the exact MP3 sent to Whisper — play it to verify ffmpeg captured the full audio.
+                </p>
+              </div>
+              <a
+                href={debugAudioUrl}
+                download={`debug_${file?.name.replace(/\.[^.]+$/, '') ?? 'audio'}.mp3`}
+                className="text-xs text-amber-300 hover:text-amber-200 underline underline-offset-2 flex-shrink-0"
+              >
+                Download
+              </a>
+            </div>
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <audio src={debugAudioUrl} controls className="w-full h-9" />
           </div>
         )}
 

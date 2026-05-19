@@ -36,7 +36,12 @@ const TOKEN_PRICING: Record<string, { input: number; output: number }> = {
   'gemini-2.0-flash-lite':     { input: 0.075,  output: 0.30  },
 }
 
-const WHISPER_PER_MINUTE = 0.006
+// Per-minute audio transcription pricing (USD)
+const TRANSCRIPTION_PER_MINUTE: Record<string, number> = {
+  'whisper-1': 0.006,
+  'gpt-4o-transcribe': 0.006,
+  'gpt-4o-mini-transcribe': 0.003,
+}
 const MAX_ENTRIES = 10_000
 const REDIS_KEY = 'usage_log'
 
@@ -65,8 +70,9 @@ export function estimateCost(
   outputTokens: number,
   audioSeconds?: number,
 ): number {
-  if (model === 'whisper-1' && audioSeconds !== undefined) {
-    return (audioSeconds / 60) * WHISPER_PER_MINUTE
+  const perMinute = TRANSCRIPTION_PER_MINUTE[model]
+  if (perMinute !== undefined && audioSeconds !== undefined) {
+    return (audioSeconds / 60) * perMinute
   }
   const p = TOKEN_PRICING[model]
   if (!p) return 0
