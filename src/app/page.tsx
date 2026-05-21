@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import type { Reel } from '@/lib/types'
+import type { Reel, Platform, EntityType } from '@/lib/types'
+import { makeCompetitorKey, parseCompetitorKey, competitorDisplayLabel } from '@/lib/types'
 import ReelCard from '@/components/ReelCard'
 import MetricsOverview from '@/components/MetricsOverview'
 import PerformanceChart from '@/components/PerformanceChart'
@@ -95,17 +96,22 @@ async function pollStatus(runId: string): Promise<string> {
   return data.status as string
 }
 
-async function startAndWait(
-  instagramUrl: string,
-  limit: number,
-  onStatus: (s: ScrapeState) => void,
-  onlyPostsNewerThan?: string,
-): Promise<Reel[]> {
+interface StartAndWaitArgs {
+  platform: Platform
+  entityType: EntityType
+  identifier: string
+  limit: number
+  onStatus: (s: ScrapeState) => void
+  onlyPostsNewerThan?: string  // Instagram only
+}
+
+async function startAndWait(args: StartAndWaitArgs): Promise<Reel[]> {
+  const { platform, entityType, identifier, limit, onStatus, onlyPostsNewerThan } = args
   onStatus('starting')
   const startRes = await fetch('/api/start-scrape', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instagramUrl, limit, onlyPostsNewerThan }),
+    body: JSON.stringify({ platform, entityType, identifier, limit, onlyPostsNewerThan }),
   })
   if (!startRes.ok) {
     const err = await startRes.json()
@@ -122,7 +128,7 @@ async function startAndWait(
   }
 
   onStatus('fetching')
-  const res = await fetch(`/api/scrape-results?datasetId=${datasetId}&limit=${limit}`)
+  const res = await fetch(`/api/scrape-results?datasetId=${datasetId}&limit=${limit}&platform=${platform}`)
   if (!res.ok) throw new Error('Failed to fetch results')
   const { reels } = await res.json()
   return reels as Reel[]
@@ -218,6 +224,9 @@ function Dashboard() {
   const [scrapingUsernames, setScrapingUsernames] = useState<Set<string>>(new Set())
   const [compErrors, setCompErrors] = useState<Record<string, string>>({})
   const [newUsername, setNewUsername] = useState('')
+  const [newPlatform, setNewPlatform] = useState<Platform>('instagram')
+  const [newRedditEntity, setNewRedditEntity] = useState<'user' | 'subreddit'>('user')
+  const [newQuoraEntity, setNewQuoraEntity] = useState<'user' | 'topic'>('user')
   const [expandedCompetitors, setExpandedCompetitors] = useState<Set<string>>(new Set())
   const [compTranscribingId, setCompTranscribingId] = useState<string | null>(null)
   const [analyzingCompReelId, setAnalyzingCompReelId] = useState<string | null>(null)
@@ -451,7 +460,13 @@ function Dashboard() {
   const fetchMyReels = useCallback(async () => {
     setMyError('')
     try {
-      const reels = await startAndWait(`https://www.instagram.com/${myUsernameRef.current}/`, myScrapeLimitRef.current, setMyScrapeState)
+      const reels = await startAndWait({
+        platform: 'instagram',
+        entityType: 'user',
+        identifier: myUsernameRef.current,
+        limit: myScrapeLimitRef.current,
+        onStatus: setMyScrapeState,
+      })
       const now = new Date().toISOString()
       setMyReels(reels)
       setMyLastSynced(now)
@@ -464,16 +479,26 @@ function Dashboard() {
   }, [])
 
   // --- Fetch a single competitor --------------------------------------------
+  // `username` here is the composed competitor key (e.g. "reddit/subreddit/AskReddit"
+  // or a legacy bare Instagram username).
   const fetchCompetitor = useCallback(async (username: string) => {
     const limit = compFilterReelsRef.current
     const days = compFilterDaysRef.current
     const sortBy = compFilterSortRef.current
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const url = `https://www.instagram.com/${username}/`
+    const ref = parseCompetitorKey(username)
     setScrapingUsernames((prev) => new Set(Array.from(prev).concat(username)))
     setCompErrors((prev) => { const n = { ...prev }; delete n[username]; return n })
     try {
-      const fetched = await startAndWait(url, limit, () => {}, cutoff)
+      const fetched = await startAndWait({
+        platform: ref.platform,
+        entityType: ref.entityType,
+        identifier: ref.identifier,
+        limit,
+        onStatus: () => {},
+        // Day-cutoff filter is Instagram-actor-specific; Reddit/Quora ignore it.
+        onlyPostsNewerThan: ref.platform === 'instagram' ? cutoff : undefined,
+      })
       const reels = [...fetched].sort((a, b) => {
         const val = (r: Reel) => sortBy === 'views' ? r.views : sortBy === 'likes' ? r.likes : r.comments
         return val(b) - val(a)
@@ -515,11 +540,29 @@ function Dashboard() {
   }, [])
 
   const addCompetitor = useCallback(() => {
-    const clean = newUsername.replace('@', '').trim().toLowerCase()
-    if (!clean) return
+    // Accept bare handles, prefixed handles (r/foo, u/foo, @foo), or full URLs
+    // (https://www.reddit.com/r/astrology/, https://www.quora.com/topic/AI, etc).
+    let raw = newUsername.trim()
+    // Strip protocol + known domain prefixes
+    raw = raw.replace(/^https?:\/\/(www\.|m\.)?(reddit|instagram|quora)\.com\//i, '')
+    // Strip path-style prefixes Reddit/Quora use
+    raw = raw.replace(/^(r|u|user|profile|topic)\//i, '')
+    // Strip @
+    raw = raw.replace(/^@/, '')
+    // Trim a trailing slash and take only the first path segment
+    raw = raw.replace(/\/+$/, '').split('/')[0]
+    if (!raw) return
+    // Instagram identifiers are case-insensitive; Reddit subreddits/users and
+    // Quora topics/profiles are case-sensitive — preserve as typed.
+    const identifier = newPlatform === 'instagram' ? raw.toLowerCase() : raw
+    const entityType: EntityType =
+      newPlatform === 'reddit' ? newRedditEntity :
+      newPlatform === 'quora'  ? newQuoraEntity  :
+      'user'
+    const key = makeCompetitorKey({ platform: newPlatform, entityType, identifier })
     setNewUsername('')
-    if (!competitors[clean]) fetchCompetitor(clean)
-  }, [newUsername, competitors, fetchCompetitor])
+    if (!competitors[key]) fetchCompetitor(key)
+  }, [newUsername, newPlatform, newRedditEntity, newQuoraEntity, competitors, fetchCompetitor])
 
   const transcribeCompetitorReel = useCallback(async (username: string, reel: Reel) => {
     if (!reel.audioUrl && !reel.videoUrl) return
@@ -645,7 +688,8 @@ function Dashboard() {
 
   const analyzeAllCompetitorReels = useCallback(async (username: string) => {
     const reels = competitorsRef.current[username] ?? []
-    const toAnalyze = reels.filter((r) => r.transcript && !r.reelAnalysis)
+    // Instagram needs a transcript; Reddit/Quora analyze caption text directly.
+    const toAnalyze = reels.filter((r) => !r.reelAnalysis && (r.transcript || r.caption))
     if (toAnalyze.length === 0) return
 
     compBulkAnalyzingRef.current[username] = true
@@ -662,10 +706,11 @@ function Dashboard() {
       const model = selectedAnalysisModelRef.current
 
       try {
+        const text = reel.transcript || reel.caption
         const res = await fetch('/api/analyze-reel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider, model }),
+          body: JSON.stringify({ [reel.transcript ? 'transcript' : 'content']: text, ...(systemPrompt && { systemPrompt }), provider, model }),
         })
         const data = await res.json()
         if (data.analysis) {
@@ -717,7 +762,9 @@ function Dashboard() {
   }, [compLastSynced])
 
   const handleAnalyzeCompReel = useCallback(async (username: string, reel: Reel) => {
-    if (!reel.transcript) return
+    // Text posts (Reddit/Quora) are analyzed directly from caption — no transcript step.
+    const text = reel.transcript || reel.caption
+    if (!text) return
     setAnalyzingCompReelId(reel.id)
     const systemPrompt = (analysisPromptTemplatesRef.current.find((t) => t.id === selectedAnalysisPromptIdRef.current) ?? analysisPromptTemplatesRef.current[0])?.content
     const provider = selectedAnalysisProviderRef.current
@@ -726,7 +773,7 @@ function Dashboard() {
       const res = await fetch('/api/analyze-reel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: reel.transcript, ...(systemPrompt && { systemPrompt }), provider, model }),
+        body: JSON.stringify({ [reel.transcript ? 'transcript' : 'content']: text, ...(systemPrompt && { systemPrompt }), provider, model }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error as string)
@@ -1410,26 +1457,108 @@ function Dashboard() {
               </div>
             </div>
 
-            {/* Add competitor input */}
-            <div className="flex gap-3 mb-6">
-              <div className="relative flex-1 max-w-sm">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">@</span>
-                <input
-                  type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addCompetitor()}
-                  placeholder="username"
-                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-7 pr-4 py-2.5 text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
-                />
+            {/* Add competitor — platform-aware */}
+            <div className="mb-6 space-y-3">
+              {/* Platform selector */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Platform:</span>
+                {([
+                  { id: 'instagram', label: 'Instagram', activeClass: 'bg-pink-500/20 border-pink-500/50 text-pink-300' },
+                  { id: 'reddit',    label: 'Reddit',    activeClass: 'bg-orange-500/20 border-orange-500/50 text-orange-300' },
+                  { id: 'quora',     label: 'Quora',     activeClass: 'bg-red-600/20 border-red-600/50 text-red-300' },
+                ] as const).map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setNewPlatform(p.id)}
+                    className={clsx(
+                      'text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                      newPlatform === p.id
+                        ? p.activeClass
+                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
-              <button
-                onClick={addCompetitor}
-                disabled={!newUsername.trim()}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm px-4 py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Plus className="w-4 h-4" /> Add & Scrape
-              </button>
+
+              {/* Entity-type sub-toggle — only for Reddit / Quora */}
+              {newPlatform === 'reddit' && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Type:</span>
+                  {([
+                    { id: 'user',      label: 'User (u/)' },
+                    { id: 'subreddit', label: 'Subreddit (r/)' },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setNewRedditEntity(t.id)}
+                      className={clsx(
+                        'text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                        newRedditEntity === t.id
+                          ? 'bg-orange-500/20 border-orange-500/50 text-orange-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {newPlatform === 'quora' && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-500 font-medium w-20 flex-shrink-0">Type:</span>
+                  {([
+                    { id: 'user',  label: 'User profile' },
+                    { id: 'topic', label: 'Topic / Space' },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setNewQuoraEntity(t.id)}
+                      className={clsx(
+                        'text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+                        newQuoraEntity === t.id
+                          ? 'bg-red-600/20 border-red-600/50 text-red-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Identifier input + Add button */}
+              <div className="flex gap-3">
+                <div className="relative flex-1 max-w-sm">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                    {newPlatform === 'reddit' && newRedditEntity === 'subreddit' ? 'r/'
+                      : newPlatform === 'reddit' && newRedditEntity === 'user' ? 'u/'
+                      : '@'}
+                  </span>
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addCompetitor()}
+                    placeholder={
+                      newPlatform === 'instagram' ? 'username'
+                      : newPlatform === 'reddit' && newRedditEntity === 'subreddit' ? 'AskReddit'
+                      : newPlatform === 'reddit' ? 'spez'
+                      : newPlatform === 'quora' && newQuoraEntity === 'topic' ? 'Machine-Learning'
+                      : 'Profile-Name'
+                    }
+                    className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-8 pr-4 py-2.5 text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                  />
+                </div>
+                <button
+                  onClick={addCompetitor}
+                  disabled={!newUsername.trim()}
+                  className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm px-4 py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-4 h-4" /> Add & Scrape
+                </button>
+              </div>
             </div>
 
             {/* Active competitors list */}
@@ -1438,7 +1567,7 @@ function Dashboard() {
                 <Users2 className="w-10 h-10 text-slate-600 mx-auto mb-4" />
                 <h3 className="text-white font-semibold mb-2">No competitors added</h3>
                 <p className="text-slate-500 text-sm max-w-xs mx-auto">
-                  Type a username above and click &quot;Add &amp; Scrape&quot;. Try <span className="text-violet-400">nateherk</span> or <span className="text-violet-400">nick_saraev</span>
+                  Pick a platform, type a handle, and click &quot;Add &amp; Scrape&quot;. Try <span className="text-violet-400">nateherk</span> (Instagram), <span className="text-orange-400">r/AskReddit</span>, or a Quora topic.
                 </p>
               </div>
             )}
@@ -1448,8 +1577,8 @@ function Dashboard() {
               <div key={username} className="mb-4 rounded-xl border border-violet-500/20 bg-violet-500/5 p-5">
                 <div className="flex items-center gap-3">
                   <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
-                  <span className="text-sm text-violet-300 font-medium">Scraping @{username}...</span>
-                  <span className="text-xs text-slate-500">Apify is fetching their reels (1-3 min)</span>
+                  <span className="text-sm text-violet-300 font-medium">Scraping {competitorDisplayLabel(username)}...</span>
+                  <span className="text-xs text-slate-500">Apify is fetching results (1-3 min)</span>
                 </div>
               </div>
             ))}
@@ -1687,7 +1816,7 @@ function Dashboard() {
                           : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400',
                       )}
                     >
-                      @{username}
+                      {competitorDisplayLabel(username)}
                     </button>
                   ))}
                 </div>
@@ -1724,7 +1853,7 @@ function Dashboard() {
                             {isExpanded
                               ? <ChevronDown className="w-3 h-3 text-slate-500 flex-shrink-0" />
                               : <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />}
-                            <span className="text-xs text-slate-400">@{username}</span>
+                            <span className="text-xs text-slate-400">{competitorDisplayLabel(username)}</span>
                             <span className={clsx(
                               'text-xs ml-1.5',
                               isPartial && selCount === 0 ? 'text-rose-500'
@@ -1858,7 +1987,7 @@ function Dashboard() {
                         `#${ideasHistory.length - i} - ${formatGenDate(g.generatedAt)}${i === 0 ? ' (latest)' : ''}`,
                         g.provider ? PROVIDER_LABELS[g.provider] : null,
                         g.promptName ? `"${g.promptName}"` : null,
-                        g.competitorUsernames?.length ? g.competitorUsernames.map(u => `@${u}`).join(', ') : null,
+                        g.competitorUsernames?.length ? g.competitorUsernames.map(competitorDisplayLabel).join(', ') : null,
                       ].filter(Boolean).join(' · ')}
                     </option>
                   ))}
@@ -1938,7 +2067,7 @@ function Dashboard() {
                   )}
                   {selectedIdea.competitorUsernames?.map((u) => (
                     <span key={u} className="text-xs px-2 py-0.5 rounded-md bg-slate-700/60 border border-slate-600/40 text-slate-400">
-                      @{u}
+                      {competitorDisplayLabel(u)}
                     </span>
                   ))}
                   {!selectedIdea.provider && !selectedIdea.promptName && (

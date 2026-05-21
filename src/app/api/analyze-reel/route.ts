@@ -94,10 +94,14 @@ async function analyzeWithOpenAI(transcript: string, systemPrompt: string, model
 }
 
 export async function POST(req: NextRequest) {
-  const { transcript, systemPrompt: customPrompt, provider: requestedProvider, model: requestedModel } = await req.json()
+  // `transcript` is the legacy field (Instagram audio-transcript flow).
+  // `content` is the cross-platform field used for Reddit/Quora post bodies.
+  // Either is accepted; downstream prompts get whichever was provided.
+  const { transcript, content, systemPrompt: customPrompt, provider: requestedProvider, model: requestedModel } = await req.json()
+  const analyzable: string | undefined = transcript ?? content
 
-  if (!transcript?.trim()) {
-    return NextResponse.json({ error: 'transcript required' }, { status: 400 })
+  if (!analyzable?.trim()) {
+    return NextResponse.json({ error: 'transcript or content required' }, { status: 400 })
   }
 
   const provider = (requestedProvider ?? 'gemini') as Provider
@@ -117,9 +121,9 @@ export async function POST(req: NextRequest) {
 
   try {
     let result: ProviderResult
-    if (provider === 'anthropic') result = await analyzeWithAnthropic(transcript, systemPrompt, model)
-    else if (provider === 'openai') result = await analyzeWithOpenAI(transcript, systemPrompt, model)
-    else result = await analyzeWithGemini(transcript, systemPrompt, model)
+    if (provider === 'anthropic') result = await analyzeWithAnthropic(analyzable, systemPrompt, model)
+    else if (provider === 'openai') result = await analyzeWithOpenAI(analyzable, systemPrompt, model)
+    else result = await analyzeWithGemini(analyzable, systemPrompt, model)
 
     await logUsage({
       timestamp: new Date().toISOString(),

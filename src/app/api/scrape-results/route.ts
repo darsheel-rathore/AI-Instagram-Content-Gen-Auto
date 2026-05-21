@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchResults, tagPerformance } from '@/lib/apify'
+import type { Platform } from '@/lib/types'
 import fs from 'fs'
 import path from 'path'
 
@@ -34,18 +35,23 @@ async function cacheThumbnail(id: string, cdnUrl: string): Promise<string> {
 export async function GET(req: NextRequest) {
   const datasetId = req.nextUrl.searchParams.get('datasetId')
   const limit = Number(req.nextUrl.searchParams.get('limit') ?? 30)
+  const platform = (req.nextUrl.searchParams.get('platform') ?? 'instagram') as Platform
   if (!datasetId) return NextResponse.json({ error: 'datasetId required' }, { status: 400 })
   try {
-    const reels = await fetchResults(datasetId, limit)
+    const reels = await fetchResults(datasetId, limit, platform)
     const tagged = tagPerformance(reels)
 
-    const withLocalThumbs = await Promise.all(
-      tagged.map(async (reel) => {
-        if (!reel.thumbnailUrl) return reel
-        const localUrl = await cacheThumbnail(reel.id, reel.thumbnailUrl)
-        return { ...reel, thumbnailUrl: localUrl }
-      })
-    )
+    // Only Instagram thumbnails go through the proxy (they require referer headers).
+    // Reddit thumbnails on external-preview.redd.it work fine direct.
+    const withLocalThumbs = platform === 'instagram'
+      ? await Promise.all(
+          tagged.map(async (reel) => {
+            if (!reel.thumbnailUrl) return reel
+            const localUrl = await cacheThumbnail(reel.id, reel.thumbnailUrl)
+            return { ...reel, thumbnailUrl: localUrl }
+          }),
+        )
+      : tagged
 
     return NextResponse.json({ reels: withLocalThumbs })
   } catch (e: unknown) {

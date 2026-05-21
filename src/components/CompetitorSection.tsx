@@ -2,13 +2,21 @@
 
 import { useState, useRef } from 'react'
 import type { Reel } from '@/lib/types'
+import { parseCompetitorKey, competitorDisplayLabel } from '@/lib/types'
 import {
   Eye, Heart, MessageCircle, ExternalLink, TrendingUp,
   ChevronDown, ChevronRight, RefreshCw, X, Clock, AlertCircle,
   Play, Pause, Loader2, FileText, Volume2, VolumeX, Maximize, Mic, Download,
-  Copy, Check, Sparkles,
+  Copy, Check, Sparkles, ArrowUp,
 } from 'lucide-react'
 import clsx from 'clsx'
+
+// Platform pill styling — keeps the rest of the UI single-source-of-truth.
+const PLATFORM_PILL: Record<'instagram' | 'reddit' | 'quora', { label: string; cls: string }> = {
+  instagram: { label: 'Instagram', cls: 'bg-pink-500/10 border-pink-500/30 text-pink-300' },
+  reddit:    { label: 'Reddit',    cls: 'bg-orange-500/10 border-orange-500/30 text-orange-300' },
+  quora:     { label: 'Quora',     cls: 'bg-red-600/10 border-red-600/30 text-red-300' },
+}
 
 type SortKey = 'views' | 'likes' | 'comments' | 'engagement'
 
@@ -22,7 +30,9 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ReactNode; color:
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
-  return String(n)
+  // Aggregate metrics (averages) come in as floats; per-post counts are integers.
+  // Either way we want a clean integer for the header — no "98.466666…".
+  return String(Math.round(n))
 }
 
 function timeAgo(iso: string) {
@@ -75,9 +85,10 @@ interface Props {
 
 const SPEEDS = [1, 1.5, 2] as const
 
-function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing, analyzeAllRunning, analyzeError }: {
+function CompetitorReel({ reel, rank, platform, onTranscribe, isTranscribing, transcribeError, onAnalyze, isAnalyzing, analyzeAllRunning, analyzeError }: {
   reel: Reel
   rank: number
+  platform: 'instagram' | 'reddit' | 'quora'
   onTranscribe: () => void
   isTranscribing: boolean
   transcribeError?: string
@@ -86,8 +97,10 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
   analyzeAllRunning: boolean
   analyzeError?: string
 }) {
+  const isInstagram = platform === 'instagram'
   const [modalOpen, setModalOpen] = useState(false)
   const [transcriptOpen, setTranscriptOpen] = useState(false)
+  const [contentOpen, setContentOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -201,8 +214,48 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
         </div>
       )}
 
-      {/* Video overlay modal */}
-      {modalOpen && reel.videoUrl && (
+      {/* Full-content overlay — used to read truncated post bodies (Reddit/Quora) */}
+      {contentOpen && reel.caption && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setContentOpen(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-lg w-full shadow-2xl flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span className="text-sm font-semibold text-white">Post content</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(reel.caption ?? '')
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-slate-800"
+                >
+                  {copied
+                    ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</>
+                    : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+                </button>
+                <button onClick={() => setContentOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{reel.caption}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video overlay modal — Instagram only */}
+      {modalOpen && isInstagram && reel.videoUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
           onClick={closeModal}
@@ -304,58 +357,94 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
           {rank}
         </div>
 
-        {/* Thumbnail â€" fixed w-16 h-24 so duration badge is always within bounds */}
-        <div className="relative flex-shrink-0 w-16 h-24">
-          {reel.thumbnailUrl ? (
-            <button
-              onClick={openModal}
-              className={clsx(
-                'absolute inset-0 group',
-                reel.videoUrl ? 'cursor-pointer' : 'cursor-default',
-              )}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/proxy-image?url=${encodeURIComponent(reel.thumbnailUrl)}`}
-                alt=""
-                className="w-full h-full rounded-lg object-cover"
-              />
-              {/* Play hover overlay â€" hidden while transcribing */}
-              {reel.videoUrl && !isTranscribing && (
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-lg">
-                  <div className="bg-white/90 rounded-full p-1.5">
-                    <Play className="w-4 h-4 text-slate-900 fill-slate-900" />
+        {/* Thumbnail / platform-art block.
+            Instagram: clickable video thumbnail with hover-play overlay.
+            Reddit:    static image preview if available, no play overlay.
+            Quora:     no image column (skipped). */}
+        {isInstagram && (
+          <div className="relative flex-shrink-0 w-16 h-24">
+            {reel.thumbnailUrl ? (
+              <button
+                onClick={openModal}
+                className={clsx(
+                  'absolute inset-0 group',
+                  reel.videoUrl ? 'cursor-pointer' : 'cursor-default',
+                )}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/proxy-image?url=${encodeURIComponent(reel.thumbnailUrl)}`}
+                  alt=""
+                  className="w-full h-full rounded-lg object-cover"
+                />
+                {reel.videoUrl && !isTranscribing && (
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-lg">
+                    <div className="bg-white/90 rounded-full p-1.5">
+                      <Play className="w-4 h-4 text-slate-900 fill-slate-900" />
+                    </div>
                   </div>
-                </div>
-              )}
-              {/* Transcribing overlay */}
-              {isTranscribing && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-violet-900/70 rounded-lg gap-1">
-                  <Loader2 className="w-5 h-5 text-violet-200 animate-spin" />
-                </div>
-              )}
-            </button>
-          ) : (
-            <div className="absolute inset-0 rounded-lg bg-slate-700/50 flex items-center justify-center">
-              {isTranscribing && <Loader2 className="w-5 h-5 text-violet-300 animate-spin" />}
-            </div>
-          )}
-          {/* Duration badge â€" always within the fixed container */}
-          {reel.duration != null && !isTranscribing && (
-            <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 py-0.5 rounded font-semibold tabular-nums leading-none pointer-events-none">
-              {fmtTime(reel.duration)}
-            </span>
-          )}
-        </div>
+                )}
+                {isTranscribing && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-violet-900/70 rounded-lg gap-1">
+                    <Loader2 className="w-5 h-5 text-violet-200 animate-spin" />
+                  </div>
+                )}
+              </button>
+            ) : (
+              <div className="absolute inset-0 rounded-lg bg-slate-700/50 flex items-center justify-center">
+                {isTranscribing && <Loader2 className="w-5 h-5 text-violet-300 animate-spin" />}
+              </div>
+            )}
+            {reel.duration != null && !isTranscribing && (
+              <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 py-0.5 rounded font-semibold tabular-nums leading-none pointer-events-none">
+                {fmtTime(reel.duration)}
+              </span>
+            )}
+          </div>
+        )}
+        {!isInstagram && reel.thumbnailUrl && (
+          <div className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-slate-700/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={reel.thumbnailUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={(e) => { (e.currentTarget.style.display = 'none') }}
+            />
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 min-w-0 flex flex-col gap-2">
-          {/* Caption - only when no analysis */}
-          {!reel.reelAnalysis && (
-            <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed">
-              {reel.caption || '(no caption)'}
-            </p>
-          )}
+          {/* Caption — only when no analysis. Click anywhere on the text (or "Show more")
+              to open the full post in an overlay. */}
+          {!reel.reelAnalysis && (() => {
+            const caption = reel.caption || '(no caption)'
+            // Heuristic: anything beyond ~280 chars is likely clamped to 3 lines.
+            const isLong = caption.length > 280
+            return (
+              <div className="flex flex-col gap-1">
+                <p
+                  onClick={() => isLong && setContentOpen(true)}
+                  className={clsx(
+                    'text-xs text-slate-300 line-clamp-3 leading-relaxed whitespace-pre-line',
+                    isLong && 'cursor-pointer hover:text-slate-100 transition-colors',
+                  )}
+                  title={isLong ? 'Click to read full post' : undefined}
+                >
+                  {caption}
+                </p>
+                {isLong && (
+                  <button
+                    onClick={() => setContentOpen(true)}
+                    className="self-start text-[11px] text-sky-400 hover:text-sky-300 transition-colors"
+                  >
+                    Show more →
+                  </button>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Transcription progress text */}
           {isTranscribing && (
@@ -403,16 +492,21 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
 
           {/* Stats + action buttons */}
           <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 mt-auto">
-            <span className="flex items-center gap-1">
-              <Eye className="w-3 h-3 text-sky-400" /> {fmt(reel.views)}
-            </span>
-            <span className="flex items-center gap-1">
-              <Heart className="w-3 h-3 text-rose-400" /> {fmt(reel.likes)}
+            {isInstagram && (
+              <span className="flex items-center gap-1">
+                <Eye className="w-3 h-3 text-sky-400" /> {fmt(reel.views)}
+              </span>
+            )}
+            <span className="flex items-center gap-1" title={isInstagram ? 'Likes' : 'Upvotes'}>
+              {isInstagram
+                ? <Heart className="w-3 h-3 text-rose-400" />
+                : <ArrowUp className="w-3 h-3 text-orange-400" />}
+              {fmt(reel.likes)}
             </span>
             <span className="flex items-center gap-1">
               <MessageCircle className="w-3 h-3 text-violet-400" /> {fmt(reel.comments)}
             </span>
-            <span className="text-amber-400">{engRate}%</span>
+            {isInstagram && <span className="text-amber-400">{engRate}%</span>}
             {reel.transcript && (
               <button
                 onClick={() => setTranscriptOpen(true)}
@@ -441,8 +535,9 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                   <RefreshCw className="w-3 h-3" /> Re-transcribe
                 </button>
               )}
-              {/* Analyze button - when transcript exists but no analysis */}
-              {reel.transcript && !reel.reelAnalysis && !isAnalyzing && !analyzeAllRunning && (
+              {/* Analyze button - shown when there's analyzable content:
+                  Instagram needs a transcript; text platforms analyze the post caption directly. */}
+              {((isInstagram && reel.transcript) || (!isInstagram && reel.caption)) && !reel.reelAnalysis && !isAnalyzing && !analyzeAllRunning && (
                 <button
                   onClick={onAnalyze}
                   className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
@@ -470,7 +565,7 @@ function CompetitorReel({ reel, rank, onTranscribe, isTranscribing, transcribeEr
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sky-500 hover:text-sky-400 transition-colors"
-                title="Open on Instagram"
+                title={isInstagram ? 'Open on Instagram' : platform === 'reddit' ? 'Open on Reddit' : 'Open on Quora'}
               >
                 <ExternalLink className="w-3 h-3" />
               </a>
@@ -487,7 +582,14 @@ export default function CompetitorSection({
   onTranscribe, transcribingId, transcribeErrors, onTranscribeAll, onStopTranscribeAll, transcribeAllProgress,
   onAnalyze, analyzingId, analyzeErrors, onAnalyzeAll, onStopAnalyzeAll, analyzeAllProgress,
 }: Props) {
-  const [sortBy, setSortBy] = useState<SortKey>('views')
+  const ref = parseCompetitorKey(username)
+  const platform = ref.platform
+  const displayLabel = competitorDisplayLabel(username)
+  const isInstagram = platform === 'instagram'
+  const itemNoun = isInstagram ? 'reels' : 'posts'
+
+  // Default sort: views works for Instagram only; text platforms default to likes (upvote score).
+  const [sortBy, setSortBy] = useState<SortKey>(isInstagram ? 'views' : 'likes')
   const [showConfirm, setShowConfirm] = useState(false)
   const [showAnalyzeConfirm, setShowAnalyzeConfirm] = useState(false)
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
@@ -496,13 +598,22 @@ export default function CompetitorSection({
   const sorted = [...reels].sort((a, b) =>
     sortBy === 'engagement' ? engRate(b) - engRate(a) : b[sortBy] - a[sortBy]
   )
-  const avgViews = reels.length > 0 ? reels.reduce((s, r) => s + r.views, 0) / reels.length : 0
+  // Primary header metric: views for Instagram, upvotes (likes) elsewhere.
+  const avgPrimary = reels.length > 0
+    ? reels.reduce((s, r) => s + (isInstagram ? r.views : r.likes), 0) / reels.length
+    : 0
   const avgEng = reels.length > 0
     ? reels.reduce((s, r) => s + (r.views > 0 ? (r.likes + r.comments) / r.views : 0), 0) / reels.length * 100
     : 0
 
-  const transcribable = reels.filter((r) => !r.transcript && (r.audioUrl || r.videoUrl))
-  const analyzable = reels.filter((r) => r.transcript && !r.reelAnalysis)
+  // Transcribe-all is Instagram-only (text posts have no audio).
+  const transcribable = isInstagram
+    ? reels.filter((r) => !r.transcript && (r.audioUrl || r.videoUrl))
+    : []
+  // Analyze-all: Instagram needs transcripts; text platforms can run analysis on caption.
+  const analyzable = reels.filter((r) =>
+    !r.reelAnalysis && (isInstagram ? !!r.transcript : !!r.caption)
+  )
   const estimatedMinutes = Math.max(1, Math.ceil(transcribable.length * 30 / 60))
   const estimatedAnalyzeSeconds = Math.max(1, Math.ceil(analyzable.length * 8))
 
@@ -523,12 +634,12 @@ export default function CompetitorSection({
                 <X className="w-5 h-5 text-rose-400" />
               </div>
               <div>
-                <h3 className="text-white font-semibold text-sm">Remove @{username}?</h3>
-                <p className="text-slate-500 text-xs mt-0.5">{reels.length} reels — this cannot be undone</p>
+                <h3 className="text-white font-semibold text-sm">Remove {displayLabel}?</h3>
+                <p className="text-slate-500 text-xs mt-0.5">{reels.length} {itemNoun} — this cannot be undone</p>
               </div>
             </div>
             <p className="text-slate-400 text-sm mb-5">
-              All cached data for this creator — including transcripts and analysis — will be removed. You can re-add them at any time.
+              All cached data for this {isInstagram ? 'creator' : platform === 'reddit' && ref.entityType === 'subreddit' ? 'subreddit' : 'source'} — including transcripts and analysis — will be removed. You can re-add it at any time.
             </p>
             <div className="flex gap-3">
               <button
@@ -563,14 +674,14 @@ export default function CompetitorSection({
                 <Sparkles className="w-5 h-5 text-amber-400" />
               </div>
               <div>
-                <h3 className="text-white font-semibold text-sm">Analyze all transcribed reels?</h3>
-                <p className="text-slate-500 text-xs mt-0.5">@{username}</p>
+                <h3 className="text-white font-semibold text-sm">Analyze all {isInstagram ? 'transcribed reels' : 'posts'}?</h3>
+                <p className="text-slate-500 text-xs mt-0.5">{displayLabel}</p>
               </div>
             </div>
             <p className="text-slate-400 text-sm mb-2">
               This will analyze{' '}
               <span className="text-white font-semibold">
-                {analyzable.length} reel{analyzable.length !== 1 ? 's' : ''}
+                {analyzable.length} {analyzable.length === 1 ? itemNoun.replace(/s$/, '') : itemNoun}
               </span>{' '}
               using your selected AI — one at a time, sequentially.
             </p>
@@ -592,7 +703,7 @@ export default function CompetitorSection({
                 onClick={() => { setShowAnalyzeConfirm(false); onAnalyzeAll() }}
                 className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors"
               >
-                Analyze {analyzable.length} reels
+                Analyze {analyzable.length} {itemNoun}
               </button>
             </div>
           </div>
@@ -615,7 +726,7 @@ export default function CompetitorSection({
               </div>
               <div>
                 <h3 className="text-white font-semibold text-sm">Transcribe all reels?</h3>
-                <p className="text-slate-500 text-xs mt-0.5">@{username}</p>
+                <p className="text-slate-500 text-xs mt-0.5">{displayLabel}</p>
               </div>
             </div>
             <p className="text-slate-400 text-sm mb-2">
@@ -660,16 +771,24 @@ export default function CompetitorSection({
             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </div>
           <div className="flex-1 min-w-0 flex items-center gap-4 flex-wrap">
-            <span className="font-semibold text-white">@{username}</span>
-            <span className="text-xs text-slate-500">{reels.length} reels</span>
-            <span className="text-xs">
-              <span className="text-amber-400 font-bold">{fmt(avgViews)}</span>
-              <span className="text-slate-500"> avg views</span>
+            <span className="font-semibold text-white">{displayLabel}</span>
+            <span className={clsx(
+              'text-[10px] px-1.5 py-0.5 rounded-full border font-medium',
+              PLATFORM_PILL[platform].cls,
+            )}>
+              {PLATFORM_PILL[platform].label}
             </span>
+            <span className="text-xs text-slate-500">{reels.length} {itemNoun}</span>
             <span className="text-xs">
-              <span className="text-emerald-400 font-bold">{avgEng.toFixed(1)}%</span>
-              <span className="text-slate-500"> avg eng</span>
+              <span className="text-amber-400 font-bold">{fmt(avgPrimary)}</span>
+              <span className="text-slate-500"> avg {isInstagram ? 'views' : 'upvotes'}</span>
             </span>
+            {isInstagram && (
+              <span className="text-xs">
+                <span className="text-emerald-400 font-bold">{avgEng.toFixed(1)}%</span>
+                <span className="text-slate-500"> avg eng</span>
+              </span>
+            )}
             {lastSynced && (
               <span className="flex items-center gap-1 text-xs text-slate-600">
                 <Clock className="w-3 h-3" /> {timeAgo(lastSynced)}
@@ -708,7 +827,10 @@ export default function CompetitorSection({
             {/* Sort bar + Transcribe All */}
             <div className="px-5 py-3 border-t border-slate-700/60 flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-1 bg-slate-900/60 rounded-lg p-1">
-                {SORT_OPTIONS.map((opt) => (
+                {SORT_OPTIONS
+                  // Views + engagement only make sense for Instagram (Reddit/Quora don't report views).
+                  .filter((opt) => isInstagram || (opt.key !== 'views' && opt.key !== 'engagement'))
+                  .map((opt) => (
                   <button
                     key={opt.key}
                     onClick={() => setSortBy(opt.key)}
@@ -757,7 +879,7 @@ export default function CompetitorSection({
                 <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="font-medium">
-                    Analyzing {analyzeAllProgress.current} of {analyzeAllProgress.total} reels...
+                    Analyzing {analyzeAllProgress.current} of {analyzeAllProgress.total} {itemNoun}...
                   </span>
                   <span className="text-slate-500 ml-2">Don&apos;t navigate away</span>
                 </div>
@@ -814,6 +936,7 @@ export default function CompetitorSection({
                   key={reel.id}
                   reel={reel}
                   rank={i + 1}
+                  platform={platform}
                   onTranscribe={() => onTranscribe(reel)}
                   isTranscribing={transcribingId === reel.id}
                   transcribeError={transcribeErrors?.[reel.id]}
