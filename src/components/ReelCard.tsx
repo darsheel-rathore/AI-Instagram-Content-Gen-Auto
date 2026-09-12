@@ -46,6 +46,19 @@ export default function ReelCard({ reel, onTranscribe, transcribing, onAnalyze, 
   const [showOverlay, setShowOverlay] = useState(false)
   const [copied, setCopied] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
+  const [triedSource, setTriedSource] = useState(false)
+
+  // Thumbnails are one of two things: a local "/api/thumbnail/<id>" path written
+  // by the scrape, or a remote CDN URL. Only the remote one needs the proxy —
+  // it exists to attach the Referer header Instagram's CDN demands. Routing a
+  // local path through the proxy makes the server fetch() a relative URL, which
+  // throws and renders every cached thumbnail as a dead preview.
+  const rawThumb = triedSource ? reel.thumbnailSourceUrl : reel.thumbnailUrl
+  const thumbSrc = !rawThumb
+    ? null
+    : rawThumb.startsWith('/')
+      ? rawThumb
+      : `/api/proxy-image?url=${encodeURIComponent(rawThumb)}`
 
   const perf = reel.performance ?? 'mid'
   const engRate = reel.views > 0 ? (((reel.likes + reel.comments) / reel.views) * 100).toFixed(1) : '0.0'
@@ -110,13 +123,19 @@ export default function ReelCard({ reel, onTranscribe, transcribing, onAnalyze, 
       <div className={clsx('rounded-xl border card-hover flex flex-col', PERF_STYLES[perf])}>
         {/* Thumbnail */}
         <div className="relative aspect-[9/16] max-h-52 rounded-t-xl overflow-hidden bg-slate-800 flex-shrink-0">
-          {reel.thumbnailUrl && !imgFailed ? (
+          {thumbSrc && !imgFailed ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={`/api/proxy-image?url=${encodeURIComponent(reel.thumbnailUrl)}`}
+              src={thumbSrc}
               alt="reel"
               className="w-full h-full object-cover"
-              onError={() => setImgFailed(true)}
+              onError={() => {
+                // A cached "/api/thumbnail/<id>" file can vanish (ephemeral disk
+                // on Vercel). Retry once against the original CDN URL before
+                // giving up, instead of showing a dead preview forever.
+                if (!triedSource && reel.thumbnailSourceUrl) setTriedSource(true)
+                else setImgFailed(true)
+              }}
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-2">

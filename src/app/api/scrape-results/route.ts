@@ -48,7 +48,10 @@ export async function GET(req: NextRequest) {
           tagged.map(async (reel) => {
             if (!reel.thumbnailUrl) return reel
             const localUrl = await cacheThumbnail(reel.id, reel.thumbnailUrl)
-            return { ...reel, thumbnailUrl: localUrl }
+            // Keep the CDN URL: the cached file lives on an ephemeral disk, so
+            // without this the only pointer to the image is lost the moment
+            // /tmp is cleared, leaving a permanently broken preview.
+            return { ...reel, thumbnailUrl: localUrl, thumbnailSourceUrl: reel.thumbnailUrl }
           }),
         )
       : tagged

@@ -20,6 +20,10 @@ export interface Reel {
   audioUrl?: string
   videoUrl?: string
   thumbnailUrl?: string
+  // Original CDN URL, kept alongside the cached "/api/thumbnail/<id>" path so a
+  // missing cache file (Vercel wipes /tmp on every cold start and redeploy) can
+  // fall back to the source instead of rendering a dead preview.
+  thumbnailSourceUrl?: string
   duration?: number
   ownerUsername: string
   transcript?: string
