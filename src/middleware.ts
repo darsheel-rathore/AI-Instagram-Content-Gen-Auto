@@ -1,8 +1,11 @@
 import { clerkMiddleware, createRouteMatcher, clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
-// Both /login and /unauthorized are public — no auth or role check
-const isPublicRoute = createRouteMatcher(['/login(.*)', '/unauthorized'])
+// /login and /unauthorized are public — no auth or role check.
+// /api/keepalive is also public: an external scheduler pings it unauthenticated
+// to keep the Upstash free-tier database from being auto-deleted after 14 days
+// of inactivity (see src/app/api/keepalive/route.ts).
+const isPublicRoute = createRouteMatcher(['/login(.*)', '/unauthorized', '/api/keepalive'])
 
 export default clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return
