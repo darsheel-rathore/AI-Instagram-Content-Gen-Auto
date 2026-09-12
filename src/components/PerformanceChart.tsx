@@ -28,6 +28,12 @@ const METRIC_CONFIG: Record<Metric, {
 
 const PERF_COLOR = { top: '#f59e0b', mid: '#6366f1', low: '#f43f5e' }
 
+// Reel-count windows for the chart. Anything larger than the number of reels
+// actually loaded is disabled rather than hidden, so the row doesn't reflow
+// every time a re-sync changes the count.
+const REEL_WINDOWS = [7, 14, 21, 30, 60] as const
+type ReelWindow = (typeof REEL_WINDOWS)[number] | 'all'
+
 interface Entry {
   name: string
   views: number
@@ -75,12 +81,16 @@ function CustomTooltip({
 
 export default function PerformanceChart({ reels }: { reels: Reel[] }) {
   const [metric, setMetric] = useState<Metric>('views')
+  const [reelWindow, setReelWindow] = useState<ReelWindow>('all')
   if (reels.length === 0) return null
 
   const cfg = METRIC_CONFIG[metric]
 
   const sorted = [...reels].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-  const data: Entry[] = sorted.map((r, i) => ({
+  // Windowing keeps chronological order and takes the most RECENT n reels —
+  // #1 is then the oldest reel still in view, not the oldest overall.
+  const visible = reelWindow === 'all' ? sorted : sorted.slice(-reelWindow)
+  const data: Entry[] = visible.map((r, i) => ({
     name: `#${i + 1}`,
     views: r.views,
     likes: r.likes,
@@ -105,27 +115,67 @@ export default function PerformanceChart({ reels }: { reels: Reel[] }) {
       <div className="relative flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-5">
         <div>
           <h3 className="text-sm font-semibold text-white">Performance by Reel</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Chronological order · color = performance tier</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Chronological order · color = performance tier
+            {reelWindow !== 'all' && ` · last ${data.length} of ${reels.length}`}
+          </p>
         </div>
 
-        {/* Metric switcher */}
-        <div className="flex items-center gap-0.5 bg-slate-800/80 rounded-lg p-1 border border-slate-700/50 flex-shrink-0">
-          {(Object.keys(METRIC_CONFIG) as Metric[]).map((m) => {
-            const active = metric === m
-            const c = METRIC_CONFIG[m]
-            return (
-              <button
-                key={m}
-                onClick={() => setMetric(m)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap ${
-                  active ? 'text-slate-900 font-semibold shadow-sm' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/40'
-                }`}
-                style={active ? { background: c.accent } : {}}
-              >
-                {c.label}
-              </button>
-            )
-          })}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Reel-count window */}
+          <div className="flex items-center gap-0.5 bg-slate-800/80 rounded-lg p-1 border border-slate-700/50 flex-shrink-0">
+            {REEL_WINDOWS.map((n) => {
+              const active = reelWindow === n
+              const disabled = n >= reels.length
+              return (
+                <button
+                  key={n}
+                  onClick={() => setReelWindow(n)}
+                  disabled={disabled}
+                  title={disabled ? `Only ${reels.length} reels loaded` : `Last ${n} reels`}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 tabular-nums ${
+                    active
+                      ? 'bg-slate-200 text-slate-900 font-semibold shadow-sm'
+                      : disabled
+                        ? 'text-slate-600 cursor-not-allowed'
+                        : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/40'
+                  }`}
+                >
+                  {n}
+                </button>
+              )
+            })}
+            <button
+              onClick={() => setReelWindow('all')}
+              className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
+                reelWindow === 'all'
+                  ? 'bg-slate-200 text-slate-900 font-semibold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/40'
+              }`}
+            >
+              All
+            </button>
+          </div>
+
+          {/* Metric switcher */}
+          <div className="flex items-center gap-0.5 bg-slate-800/80 rounded-lg p-1 border border-slate-700/50 flex-shrink-0">
+            {(Object.keys(METRIC_CONFIG) as Metric[]).map((m) => {
+              const active = metric === m
+              const c = METRIC_CONFIG[m]
+              return (
+                <button
+                  key={m}
+                  onClick={() => setMetric(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap ${
+                    active ? 'text-slate-900 font-semibold shadow-sm' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/40'
+                  }`}
+                  style={active ? { background: c.accent } : {}}
+                >
+                  {c.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
