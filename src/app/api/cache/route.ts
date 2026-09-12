@@ -30,8 +30,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data: data ?? null })
     }
     return NextResponse.json({ data: fsRead(key) })
-  } catch {
-    return NextResponse.json({ data: null })
+  } catch (e) {
+    // Previously this returned {data:null}, making a broken Redis connection
+    // indistinguishable from "this key has never been written" — the dashboard
+    // just showed an empty state with no clue anything had failed.
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`[api/cache] read failed for "${key}"`, msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 

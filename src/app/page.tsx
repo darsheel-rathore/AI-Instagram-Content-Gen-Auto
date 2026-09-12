@@ -134,18 +134,45 @@ async function startAndWait(args: StartAndWaitArgs): Promise<Reel[]> {
   return reels as Reel[]
 }
 
-async function saveCache(key: string, data: unknown) {
-  await fetch('/api/cache', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key, data }),
-  })
+// Returns false (never throws) when the write didn't land — most call sites
+// fire-and-forget from inside state updaters, so throwing here would surface as
+// an unhandled rejection instead of anything useful. A failed save used to be
+// completely silent, which made "my re-sync disappeared" impossible to debug.
+async function saveCache(key: string, data: unknown): Promise<boolean> {
+  try {
+    const res = await fetch('/api/cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, data }),
+    })
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      console.error(`[cache] save failed for "${key}" — HTTP ${res.status}`, detail.slice(0, 500))
+      return false
+    }
+    return true
+  } catch (e) {
+    console.error(`[cache] save threw for "${key}"`, e)
+    return false
+  }
 }
 
 async function loadCache<T>(key: string): Promise<T | null> {
-  const res = await fetch(`/api/cache?key=${key}`)
-  const { data } = await res.json()
-  return data as T | null
+  try {
+    const res = await fetch(`/api/cache?key=${key}`)
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      console.error(`[cache] load failed for "${key}" — HTTP ${res.status}`, detail.slice(0, 500))
+      return null
+    }
+    const { data } = await res.json()
+    return (data ?? null) as T | null
+  } catch (e) {
+    // One unreadable key must not reject the whole mount-time Promise.all and
+    // leave the dashboard stuck with nothing hydrated.
+    console.error(`[cache] load threw for "${key}"`, e)
+    return null
+  }
 }
 
 function formatGenDate(iso: string) {
@@ -471,7 +498,14 @@ function Dashboard() {
       setMyReels(reels)
       setMyLastSynced(now)
       setMyScrapeState('done')
-      await saveCache('my_reels', { reels, fetchedAt: now })
+      const saved = await saveCache('my_reels', { reels, fetchedAt: now })
+      if (!saved) {
+        // The scrape already cost Apify credits — say so loudly rather than
+        // letting it look successful until the next page load reverts it.
+        setMyError(
+          'Reels were fetched but could NOT be saved — they will disappear when you leave this page. Check the browser console for the cache error.',
+        )
+      }
     } catch (e: unknown) {
       setMyError(e instanceof Error ? e.message : String(e))
       setMyScrapeState('error')
