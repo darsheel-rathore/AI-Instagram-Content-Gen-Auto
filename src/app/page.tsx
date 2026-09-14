@@ -483,10 +483,47 @@ function Dashboard() {
     })
   }, [])
 
+  // Settings changes made on /settings only take effect here on the *next*
+  // fresh load of this page. Since the Settings link/back button are plain
+  // <a>/history navigations, the browser can restore this page from bfcache
+  // instead of re-running the mount effect above — so re-pull settings when
+  // that happens, to keep the displayed username/name from going stale.
+  useEffect(() => {
+    function onPageShow(e: PageTransitionEvent) {
+      if (!e.persisted) return
+      loadCache<{ instagramUsername?: string; autoSignoutMinutes?: number; myReelsScrapeLimit?: number; displayName?: string }>('settings')
+        .then((settingsCache) => {
+          if (settingsCache?.instagramUsername) {
+            setMyUsername(settingsCache.instagramUsername)
+            myUsernameRef.current = settingsCache.instagramUsername
+          }
+          if (settingsCache?.myReelsScrapeLimit) {
+            myScrapeLimitRef.current = settingsCache.myReelsScrapeLimit
+          }
+          if (settingsCache?.displayName) setDisplayName(settingsCache.displayName)
+          if (settingsCache?.autoSignoutMinutes !== undefined) setAutoSignoutMins(settingsCache.autoSignoutMinutes)
+        })
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
+
   // --- Fetch my reels -------------------------------------------------------
   const fetchMyReels = useCallback(async () => {
     setMyError('')
     try {
+      // Re-read settings instead of trusting the mount-time cache: browser
+      // back/forward navigation (bfcache) can restore this page without ever
+      // re-running the mount effect, leaving myUsernameRef stuck on whatever
+      // username was current the first time this tab loaded.
+      const settingsCache = await loadCache<{ instagramUsername?: string; myReelsScrapeLimit?: number }>('settings')
+      if (settingsCache?.instagramUsername) {
+        myUsernameRef.current = settingsCache.instagramUsername
+        setMyUsername(settingsCache.instagramUsername)
+      }
+      if (settingsCache?.myReelsScrapeLimit) {
+        myScrapeLimitRef.current = settingsCache.myReelsScrapeLimit
+      }
       const reels = await startAndWait({
         platform: 'instagram',
         entityType: 'user',
