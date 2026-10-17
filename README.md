@@ -170,4 +170,4 @@ MIT — use it, fork it, build on it.
 
 ---
 
-Built with [Claude](https://claude.ai) by [@manthanjethwani](https://www.instagram.com/manthanjethwani/)
+Built with [Claude](https://claude.ai)
