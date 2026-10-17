@@ -2,8 +2,6 @@
 
 A self-hosted Instagram analytics dashboard built with Next.js and Claude. Track your own reels, scrape competitors, transcribe audio, and get AI-powered content ideas — all in one place.
 
-Built by [@manthanjethwani](https://www.instagram.com/manthanjethwani/)
-
 ![Dashboard Preview](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js) ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
 ---
